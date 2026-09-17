@@ -150,6 +150,56 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
+            .input = "(https://example.com).",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "(https://example.com)!",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "(https://example.com);",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "(https://example.com):",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "[docs](https://example.com)!",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "[docs](https://example.com);",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "[docs](https://example.com):",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "(https://example.com)!.",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "TEXT: [issue filed](https://example.com/issues/123).",
+            .expect = "https://example.com/issues/123",
+        },
+        .{
+            .input = "did you see [this](https://example.com/issues/123)?",
+            .expect = "https://example.com/issues/123",
+        },
+        // Known limitation: optional_bracketed_word_suffix only matches a single flat "(word)" suffix, so genuinely nested parens aren't matched at all and the URL is truncated before the first "(".
+        .{
+            .input = "https://example.com/Rust_(foo(bar))",
+            .expect = "https://example.com/Rust_",
+        },
+        // Known limitation: optional_bracketed_word_suffix doesn't enforce that the opening and closing bracket are the same type, so a mismatched pair like "(bar]" is still consumed as if it were valid.
+        .{
+            .input = "https://example.com/foo(bar] more",
+            .expect = "https://example.com/foo(bar]",
+        },
+        .{
             .input = "Link period https://example.com. More text.",
             .expect = "https://example.com",
         },
