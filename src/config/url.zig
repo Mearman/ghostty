@@ -186,15 +186,15 @@ test "url regex" {
             .input = "did you see [this](https://example.com/issues/123)?",
             .expect = "https://example.com/issues/123",
         },
-        // Known limitation: optional_bracketed_word_suffix only matches a single flat "(word)" suffix, so genuinely nested parens aren't matched at all and the URL is truncated before the first "(".
+        // Genuinely nested parens, correctly kept in full via bracket-depth counting.
         .{
             .input = "https://example.com/Rust_(foo(bar))",
-            .expect = "https://example.com/Rust_",
+            .expect = "https://example.com/Rust_(foo(bar))",
         },
-        // Known limitation: optional_bracketed_word_suffix doesn't enforce that the opening and closing bracket are the same type, so a mismatched pair like "(bar]" is still consumed as if it were valid.
+        // A mismatched closing bracket with no opener of its own type is correctly stripped, rather than kept as if it were a valid pair.
         .{
             .input = "https://example.com/foo(bar] more",
-            .expect = "https://example.com/foo(bar]",
+            .expect = "https://example.com/foo(bar",
         },
         .{
             .input = "Link period https://example.com. More text.",
@@ -556,7 +556,8 @@ test "url regex" {
         //std.debug.print("ends: {d}\n", .{reg.ends()});
         defer reg.deinit();
         try testing.expectEqual(@as(usize, case.num_matches), reg.count());
-        const match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
+        const raw_match = case.input[@intCast(reg.starts()[0])..@intCast(reg.ends()[0])];
+        const match = if (isSchemeUrl(raw_match)) trimTrailingNoise(raw_match) else raw_match;
         try testing.expectEqualStrings(case.expect, match);
     }
 
@@ -585,4 +586,78 @@ test "url regex" {
             return error.TestUnexpectedResult;
         } else |_| {}
     }
+}
+
+test "isSchemeUrl recognizes a scheme URL" {
+    const testing = std.testing;
+    try testing.expect(isSchemeUrl("https://example.com"));
+}
+
+test "isSchemeUrl rejects a file path" {
+    const testing = std.testing;
+    try testing.expect(!isSchemeUrl("./spaces-end."));
+}
+
+test "trimTrailingNoise strips a trailing period" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com",
+        trimTrailingNoise("https://example.com."),
+    );
+}
+
+test "trimTrailingNoise strips a trailing comma" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com",
+        trimTrailingNoise("https://example.com,"),
+    );
+}
+
+test "trimTrailingNoise keeps a trailing paren that closes an earlier open" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://en.wikipedia.org/wiki/Rust_(video_game)",
+        trimTrailingNoise("https://en.wikipedia.org/wiki/Rust_(video_game)"),
+    );
+}
+
+test "trimTrailingNoise strips a trailing paren with no matching open" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com",
+        trimTrailingNoise("https://example.com)"),
+    );
+}
+
+test "trimTrailingNoise strips a stacked unmatched paren then period" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com/issues/123",
+        trimTrailingNoise("https://example.com/issues/123)."),
+    );
+}
+
+test "trimTrailingNoise keeps a matched paren but strips a trailing period after it" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com/foo(bar)",
+        trimTrailingNoise("https://example.com/foo(bar)."),
+    );
+}
+
+test "trimTrailingNoise keeps a matched square bracket" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com/[foo]",
+        trimTrailingNoise("https://example.com/[foo]"),
+    );
+}
+
+test "trimTrailingNoise strips an unmatched square bracket" {
+    const testing = std.testing;
+    try testing.expectEqualStrings(
+        "https://example.com",
+        trimTrailingNoise("https://example.com]"),
+    );
 }

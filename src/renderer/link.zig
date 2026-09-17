@@ -197,6 +197,52 @@ test "renderCellMap" {
     try testing.expect(!result.contains(.{ .x = 1, .y = 2 }));
 }
 
+test "renderCellMap trims trailing noise from scheme URL matches" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var t: terminal.Terminal = try .init(testing.io, alloc, .{
+        .cols = 12,
+        .rows = 1,
+    });
+    defer t.deinit(alloc);
+
+    var s = t.vtStream();
+    defer s.deinit();
+    const str = "https://a.b.";
+    s.nextSlice(str);
+
+    var state: terminal.RenderState = .empty;
+    defer state.deinit(alloc);
+    try state.update(alloc, &t);
+
+    // This regex greedily includes an optional trailing period, mirroring how a scheme URL match can over-match trailing punctuation before trimming is applied.
+    var set = try Set.fromConfig(alloc, &.{
+        .{
+            .regex = "https://a\\.b\\.?",
+            .action = .{ .open = {} },
+            .highlight = .{ .always = {} },
+        },
+    });
+    defer set.deinit(alloc);
+
+    var result: terminal.RenderState.CellSet = .empty;
+    defer result.deinit(alloc);
+    try set.renderCellMap(
+        alloc,
+        &result,
+        &state,
+        null,
+        .{},
+    );
+
+    // "https://a.b" (indices 0-10) is part of the link, but the trailing period (index 11) is trimmed as trailing noise.
+    for (0..11) |x| {
+        try testing.expect(result.contains(.{ .x = @intCast(x), .y = 0 }));
+    }
+    try testing.expect(!result.contains(.{ .x = 11, .y = 0 }));
+}
+
 test "renderCellMap hover links" {
     const testing = std.testing;
     const alloc = testing.allocator;
