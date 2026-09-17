@@ -208,6 +208,30 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
+            .input = "Check this out https://example.com! Great, right?",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "Have you seen https://example.com? It's great.",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "See https://example.com; it covers this well.",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "Full docs at https://example.com: read them",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "https://example.com!.",
+            .expect = "https://example.com",
+        },
+        .{
+            .input = "https://example.com?!",
+            .expect = "https://example.com",
+        },
+        .{
             .input = "Link in double quotes \"https://example.com\" and more",
             .expect = "https://example.com",
         },
