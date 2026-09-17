@@ -1,29 +1,21 @@
 const std = @import("std");
 const oni = @import("oniguruma");
 
-/// Default URL/path regex. This is used to detect URLs and file paths in
-/// terminal output.
+/// Default URL/path regex. This is used to detect URLs and file paths in terminal output.
 ///
-/// This is here in the config package because one day the matchers will be
-/// configurable and this will be a default.
+/// This is here in the config package because one day the matchers will be configurable and this will be a default.
 ///
-/// For scheme URLs, this regex is liberal in what it accepts after the scheme,
-/// with exceptions for URLs ending with . or ). Although such URLs are
-/// perfectly valid, it is common for text to contain URLs surrounded by
-/// parentheses (such as in Markdown links) or at the end of sentences.
-/// Therefore, this regex excludes them as follows:
+/// For scheme URLs, this regex is liberal in what it accepts after the scheme, with exceptions for URLs ending with ,.!?;: or ). Although such URLs are perfectly valid, it is common for text to contain URLs surrounded by parentheses (such as in Markdown links) or followed by sentence-ending punctuation. Therefore, this regex excludes them as follows:
 ///
-/// 1. Do not match regexes ending with .
-/// 2. Do not match regexes ending with ), except for ones which contain a (
-///    without a subsequent )
+/// 1. Do not match regexes ending with , . ! ? ; or :
+/// 2. Do not match regexes ending with ), except for ones which contain a ( without a subsequent )
 ///
 /// Rule 2 means that we handle the following two cases:
 ///
 ///   "https://en.wikipedia.org/wiki/Rust_(video_game)" (include parens)
 ///   "(https://example.com)" (do not include the parens)
 ///
-/// There are many complicated cases where these heuristics break down, but
-/// handling them well requires a non-regex approach.
+/// There are many complicated cases where these heuristics break down, but handling them well requires a non-regex approach.
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;
@@ -45,7 +37,7 @@ const optional_bracketed_word_suffix =
 ;
 
 const no_trailing_punctuation =
-    \\(?<![,.])
+    \\(?<![,.!?;])
 ;
 
 const no_trailing_colon =
@@ -72,7 +64,8 @@ const any_path_space_segments =
 const scheme_url_branch =
     "(?:" ++ url_schemes ++ ")" ++
     "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+" ++ optional_bracketed_word_suffix ++ ")+" ++
-    no_trailing_punctuation;
+    no_trailing_punctuation ++
+    no_trailing_colon;
 
 const rooted_or_relative_path_prefix =
     \\(?:\.\.\/|\.\/|(?<!\w)~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<![\w~\/])\/(?!\/))
