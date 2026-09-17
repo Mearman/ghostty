@@ -5,39 +5,40 @@ const oni = @import("oniguruma");
 ///
 /// This is here in the config package because one day the matchers will be configurable and this will be a default.
 ///
-/// For scheme URLs, this regex is liberal in what it accepts after the scheme, with exceptions for URLs ending with ,.!?;: or ). Although such URLs are perfectly valid, it is common for text to contain URLs surrounded by parentheses (such as in Markdown links) or followed by sentence-ending punctuation. Therefore, this regex excludes them as follows:
+/// For scheme URLs, this regex is deliberately liberal in what it accepts after the scheme, including brackets and sentence-ending punctuation that are legal URL characters but that also commonly follow a URL in ordinary text (a Markdown link's closing paren, an end-of-sentence period). Rather than encode the exclusions into the regex itself, callers are expected to run a raw match through `isSchemeUrl` + `trimTrailingNoise` below, which trims trailing noise using a general bracket-balance and punctuation-trim algorithm instead of a fixed set of regex lookbehinds. This correctly handles both of the following cases with one mechanism:
 ///
-/// 1. Do not match regexes ending with , . ! ? ; or :
-/// 2. Do not match regexes ending with ), except for ones which contain a ( without a subsequent )
+///   "https://en.wikipedia.org/wiki/Rust_(video_game)" (keep the parens, since the trailing `)` closes an earlier unmatched `(`)
+///   "(https://example.com)." (strip both the trailing `)` and `.`, since the `(` isn't part of the match at all)
 ///
-/// Rule 2 means that we handle the following two cases:
-///
-///   "https://en.wikipedia.org/wiki/Rust_(video_game)" (include parens)
-///   "(https://example.com)" (do not include the parens)
-///
-/// There are many complicated cases where these heuristics break down, but handling them well requires a non-regex approach.
+/// The path branches below (Branch 2 and Branch 3) are unaffected by this: they decide their own trailing characters directly in their own regex (e.g. `no_trailing_colon`), since a file path's trailing-character rules are different from a URL's (a file literally named `spaces-end.` should keep its trailing period).
 const url_schemes =
     \\https?://|mailto:|ftp://|file:|ssh:|git://|ssh://|tel:|magnet:|ipfs://|ipns://|gemini://|gopher://|news:
 ;
+
+// Literal scheme prefixes, kept in sync with the alternatives in `url_schemes` above (with `https?://` expanded to its two literal forms). Used to decide whether a raw regex match came from the scheme URL branch, which is the only branch whose trailing noise should be trimmed by `trimTrailingNoise`; the path branches already decide their own trailing characters correctly (e.g. a file named `spaces-end.` legitimately keeps its trailing period).
+const scheme_prefixes = [_][]const u8{
+    "https://",  "http://", "mailto:", "ftp://",  "file:",   "ssh:",
+    "git://",    "tel:",    "magnet:", "ipfs://", "ipns://", "gemini://",
+    "gopher://", "news:",
+};
+
+pub fn isSchemeUrl(text: []const u8) bool {
+    for (scheme_prefixes) |prefix| {
+        if (std.mem.startsWith(u8, text, prefix)) return true;
+    }
+    return false;
+}
 
 const ipv6_url_pattern =
     \\(?:\[[:0-9a-fA-F]+(?:[:0-9a-fA-F]*)+\](?::[0-9]+)?)
 ;
 
 const scheme_url_chars =
-    \\[\w\-.~:/?#@!$&*+,;=%]
+    \\[\w\-.~:/?#@!$&*+,;=%()\[\]]
 ;
 
 const path_chars =
     \\[\w\-.~:\/?#@!$&*+;=%]
-;
-
-const optional_bracketed_word_suffix =
-    \\(?:[\(\[]\w*[\)\]])?
-;
-
-const no_trailing_punctuation =
-    \\(?<![,.!?;])
 ;
 
 const no_trailing_colon =
@@ -63,9 +64,7 @@ const any_path_space_segments =
 // Branch 1: URLs with explicit schemes (http, mailto, ftp, etc.).
 const scheme_url_branch =
     "(?:" ++ url_schemes ++ ")" ++
-    "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+" ++ optional_bracketed_word_suffix ++ ")+" ++
-    no_trailing_punctuation ++
-    no_trailing_colon;
+    "(?:" ++ ipv6_url_pattern ++ "|" ++ scheme_url_chars ++ "+)+";
 
 const rooted_or_relative_path_prefix =
     \\(?:\.\.\/|\.\/|(?<!\w)~\/|(?:[\w][\w\-.]*\/)*(?<!\w)\$[A-Za-z_]\w*\/|\.[\w][\w\-.]*\/|(?<![\w~\/])\/(?!\/))
@@ -105,6 +104,37 @@ pub const regex =
     rooted_or_relative_path_branch ++
     "|" ++
     bare_relative_path_branch;
+
+const trailing_noise_chars = ",.!?;:";
+const closing_brackets = ")]}";
+const opening_brackets = "([{";
+
+/// Given a raw matched span (as returned by `regex`), trims trailing characters that are noise rather than part of the URL: sentence-ending punctuation, and closing brackets that don't have a matching unclosed opening bracket earlier in the match.
+pub fn trimTrailingNoise(match: []const u8) []const u8 {
+    var end = match.len;
+    while (end > 0) {
+        const c = match[end - 1];
+        if (std.mem.indexOfScalar(u8, trailing_noise_chars, c) != null) {
+            end -= 1;
+            continue;
+        }
+        if (std.mem.indexOfScalar(u8, closing_brackets, c)) |i| {
+            const opener = opening_brackets[i];
+            const closer = closing_brackets[i];
+            var depth: i32 = 0;
+            for (match[0 .. end - 1]) |ch| {
+                if (ch == opener) depth += 1;
+                if (ch == closer) depth -= 1;
+            }
+            // A positive depth means there's an earlier unclosed opener that this bracket legitimately closes, so it's part of the URL and we stop trimming here.
+            if (depth > 0) break;
+            end -= 1;
+            continue;
+        }
+        break;
+    }
+    return match[0..end];
+}
 
 test "url regex" {
     const testing = std.testing;

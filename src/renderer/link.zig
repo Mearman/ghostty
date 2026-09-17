@@ -2,6 +2,7 @@ const std = @import("std");
 const assert = std.debug.assert;
 const Allocator = std.mem.Allocator;
 const oni = @import("oniguruma");
+const configpkg = @import("../config.zig");
 const inputpkg = @import("../input.zig");
 const terminal = @import("../terminal/main.zig");
 const point = terminal.point;
@@ -119,12 +120,17 @@ pub const Set = struct {
                 const offset_start: usize = @intCast(region.starts()[0]);
                 const offset_end: usize = @intCast(region.ends()[0]);
                 const start = offset + offset_start;
-                const end = offset + offset_end;
+                const raw_end = offset + offset_end;
 
-                // Increment our offset by the number of bytes in the match.
-                // We defer this so that we can return the match before
-                // modifying the offset.
-                defer offset = end;
+                // Increment our offset by the number of bytes in the raw match. We defer this so that we can return the match before modifying the offset. This intentionally uses raw_end, not the trimmed end, so we don't re-scan the trailing noise we just trimmed off.
+                defer offset = raw_end;
+
+                // Trim trailing noise (sentence-ending punctuation and unmatched closing brackets) off the raw match so it isn't treated as part of the link. This only applies to scheme URL matches (e.g. https://...) since path matches already decide their own trailing characters correctly and shouldn't be trimmed again.
+                const raw_match = str[start..raw_end];
+                const end = if (configpkg.url.isSchemeUrl(raw_match))
+                    start + configpkg.url.trimTrailingNoise(raw_match).len
+                else
+                    raw_end;
 
                 switch (link.highlight) {
                     .always, .always_mods => {},
