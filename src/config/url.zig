@@ -143,6 +143,10 @@ test "url regex" {
             .expect = "https://example.com",
         },
         .{
+            .input = "Some text before it (see the docs here: https://example.com) and some text after",
+            .expect = "https://example.com",
+        },
+        .{
             .input = "(https://example.com).",
             .expect = "https://example.com",
         },
