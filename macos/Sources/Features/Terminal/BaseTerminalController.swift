@@ -951,7 +951,7 @@ class BaseTerminalController: NSWindowController,
         case .resize(let resize):
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
-            splitDidDrop(source: drop.payload, destination: drop.destination, zone: drop.zone)
+            splitDidDrop(source: drop.payload, scope: drop.scope, destination: drop.destination, zone: drop.zone)
         }
     }
 
@@ -966,6 +966,7 @@ class BaseTerminalController: NSWindowController,
 
     private func splitDidDrop(
         source: Ghostty.SurfaceView,
+        scope: TerminalSplitOperation.Drop.Scope,
         destination: Ghostty.SurfaceView,
         zone: TerminalSplitDropZone
     ) {
@@ -975,6 +976,17 @@ class BaseTerminalController: NSWindowController,
         case .bottom: .down
         case .left: .left
         case .right: .right
+        }
+
+        // A whole-tab drag carries every split of the source's tab. Dropping a tab
+        // onto itself has nothing to move, which moveSurfaceTree rejects.
+        if scope == .tab {
+            guard let sourceController = Self.controller(owning: source) else {
+                Ghostty.logger.warning("source surface not found in any window during tab drop")
+                return
+            }
+            sourceController.moveSurfaceTree(into: self, at: destination, direction: direction)
+            return
         }
 
         // Check if source is in our tree
@@ -1046,9 +1058,6 @@ class BaseTerminalController: NSWindowController,
     /// Moves every split of this window into the previous tab of its tab group, next to that
     /// tab's focused split, and closes this tab.
     ///
-    /// The surfaces keep running: only the tree that owns them changes. Neither side registers
-    /// an undo, because undoing the destination alone would drop surfaces that are still live.
-    ///
     /// - Parameter direction: Which side of the previous tab's focused split the moved splits go on.
     /// - Returns: False when there is nothing to merge into (no previous tab) or the insertion fails.
     @discardableResult
@@ -1058,12 +1067,29 @@ class BaseTerminalController: NSWindowController,
               let index = tabGroup.windows.firstIndex(of: window),
               index > 0,
               let destination = tabGroup.windows[index - 1].windowController as? BaseTerminalController,
-              let moving = surfaceTree.root,
               // A tab that was never focused has no focused surface to anchor on.
               let anchor = destination.focusedSurface ?? destination.surfaceTree.first(where: { _ in true })
         else {
             return false
         }
+
+        return moveSurfaceTree(into: destination, at: anchor, direction: direction)
+    }
+
+    /// Moves every split of this window into `destination`, next to `anchor`, and closes this tab.
+    ///
+    /// The surfaces keep running: only the tree that owns them changes. Neither side registers
+    /// an undo, because undoing the destination alone would drop surfaces that are still live.
+    ///
+    /// - Returns: False when `destination` is this controller, this window holds no surfaces,
+    ///   or the insertion fails.
+    @discardableResult
+    private func moveSurfaceTree(
+        into destination: BaseTerminalController,
+        at anchor: Ghostty.SurfaceView,
+        direction: SplitTree<Ghostty.SurfaceView>.NewDirection
+    ) -> Bool {
+        guard destination !== self, let moving = surfaceTree.root else { return false }
 
         let newTree: SplitTree<Ghostty.SurfaceView>
         do {

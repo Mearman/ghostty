@@ -17,7 +17,8 @@ extension Ghostty {
     /// This view wraps an AppKit-based drag source to enable drag-and-drop reordering
     /// of terminal surfaces within split views. When the user drags this view, it initiates
     /// an `NSDraggingSession` with the surface's UUID encoded in the pasteboard, allowing
-    /// drop targets to identify which surface is being moved.
+    /// drop targets to identify which surface is being moved. Holding Option when the drag
+    /// starts also marks it as a whole-tab drag, so every split of the tab moves together.
     ///
     /// The view also publishes the dragging state via `DraggingSurfaceKey` preference,
     /// enabling parent views to react to ongoing drag operations.
@@ -155,6 +156,9 @@ extension Ghostty {
 
             // Create our dragging item from our transferable
             guard let pasteboardItem = surfaceView.pasteboardItem() else { return }
+            if event.modifierFlags.contains(.option) {
+                pasteboardItem.setData(Data(), forType: .ghosttyTabDrag)
+            }
             let item = NSDraggingItem(pasteboardWriter: pasteboardItem)
 
             // Create a scaled preview image from the surface snapshot

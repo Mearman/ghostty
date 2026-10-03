@@ -14,8 +14,19 @@ enum TerminalSplitOperation {
     }
 
     struct Drop {
+        /// What a drop moves.
+        enum Scope {
+            /// Only the dragged surface.
+            case surface
+            /// Every split of the dragged surface's tab.
+            case tab
+        }
+
         /// The surface being dragged.
         let payload: Ghostty.SurfaceView
+
+        /// Whether the drop moves just the payload or its whole tab.
+        let scope: Scope
 
         /// The surface it was dragged onto
         let destination: Ghostty.SurfaceView
@@ -164,6 +175,7 @@ private struct TerminalSplitLeaf: View {
 
         func performDrop(info: DropInfo) -> Bool {
             let zone = TerminalSplitDropZone.calculate(at: info.location, in: viewSize)
+            let scope: TerminalSplitOperation.Drop.Scope = info.hasItemsConforming(to: [.ghosttyTabDrag]) ? .tab : .surface
             dropState = .idle
 
             // Load the dropped surface asynchronously using Transferable
@@ -178,7 +190,11 @@ private struct TerminalSplitLeaf: View {
                         // Don't allow dropping on self
                         guard let destinationSurface else { return }
                         guard sourceSurface !== destinationSurface else { return }
-                        action(.drop(.init(payload: sourceSurface, destination: destinationSurface, zone: zone)))
+                        action(.drop(.init(
+                            payload: sourceSurface,
+                            scope: scope,
+                            destination: destinationSurface,
+                            zone: zone)))
                     }
 
                 case .failure:

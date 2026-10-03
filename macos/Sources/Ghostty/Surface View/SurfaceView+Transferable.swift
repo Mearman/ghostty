@@ -39,9 +39,16 @@ extension UTType {
     /// A format that encodes the bare UUID only for the surface. This can be used if you have
     /// a way to look up a surface by ID.
     static let ghosttySurfaceId = UTType(exportedAs: "com.mitchellh.ghosttySurfaceId")
+
+    /// A marker with no payload. When it rides along with `ghosttySurfaceId`, the drag carries every
+    /// split of the surface's tab rather than only that surface.
+    static let ghosttyTabDrag = UTType(exportedAs: "com.mitchellh.ghosttyTabDrag")
 }
 
 extension NSPasteboard.PasteboardType {
     /// Pasteboard type for dragging surface IDs.
     static let ghosttySurfaceId = NSPasteboard.PasteboardType(UTType.ghosttySurfaceId.identifier)
+
+    /// Pasteboard type marking a drag that moves the whole tab. See `UTType.ghosttyTabDrag`.
+    static let ghosttyTabDrag = NSPasteboard.PasteboardType(UTType.ghosttyTabDrag.identifier)
 }
