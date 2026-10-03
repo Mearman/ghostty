@@ -2366,12 +2366,17 @@ keybind: Keybinds = .{},
 ///    more splits present.
 ///
 ///    On macOS, the handle is only hidden when there's one split
-///    in **fullscreen** mode, otherwise it's shown when hovered.
+///    in **fullscreen** mode, otherwise it's shown when hovered. A dim
+///    grip also stays visible while another split or tab exists to drop
+///    the surface onto.
 ///
 ///  - `never`
 ///
 ///    Never show the drag handle. Splits then cannot be rearranged with
 ///    mouse controls.
+///
+/// Dragging a handle moves that split. Hold Option when the drag starts to
+/// move every split of its tab instead (macOS only).
 ///
 /// Available since: 1.4.0.
 @"drag-handle": DragHandle = .auto,

@@ -15,6 +15,11 @@ extension Ghostty {
         @State private var isHovering: Bool = false
         @State private var isDragging: Bool = false
 
+        /// Bumped when this surface's window becomes key, which is when its tab group may have
+        /// changed (a tab was added, closed or selected). Reading it in `hasDropTarget` makes the
+        /// grip re-evaluate then, since a window's tab group is not observable.
+        @State private var windowChangeCount: Int = 0
+
         private var handleVisible: Bool {
             switch dragHandle {
             case .always:
@@ -46,11 +51,22 @@ extension Ghostty {
             guard surfaceView.cursorVisible else { return false }
             // If we're hovering or actively dragging, always visible
             if isHovering || isDragging { return true }
+            // Keep a dim grip showing while there is somewhere to drop, so the handle can be found.
+            if hasDropTarget { return true }
 
             // Require our mouse location to be within the top area of the
             // surface.
             guard let mouseLocation = surfaceView.mouseLocationInSurface else { return false }
             return Self.isInHoverRegion(mouseLocation, in: surfaceView.bounds)
+        }
+
+        /// Whether another split or tab exists to drop this surface onto.
+        private var hasDropTarget: Bool {
+            _ = windowChangeCount
+            guard let window = surfaceView.window else { return false }
+            if (window.tabGroup?.windows.count ?? 1) > 1 { return true }
+            guard let controller = window.windowController as? BaseTerminalController else { return false }
+            return controller.surfaceTree.isSplit
         }
 
         var body: some View {
@@ -74,6 +90,9 @@ extension Ghostty {
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .onReceive(NotificationCenter.default.publisher(for: NSWindow.didBecomeKeyNotification)) { _ in
+                    windowChangeCount += 1
+                }
             }
         }
 
