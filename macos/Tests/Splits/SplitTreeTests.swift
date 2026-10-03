@@ -198,10 +198,17 @@ struct SplitTreeTests {
 
     /// Builds (view1 | view2) and stacks `view3` onto view1, so the left pane holds view1 and
     /// view3 with view3 showing.
-    private func makeStackedSplit() throws -> (SplitTree<MockView>, MockView, MockView, MockView) {
+    private func makeStackedSplit() throws -> StackedSplit {
         let (tree, view1, view2) = try makeHorizontalSplit()
         let view3 = MockView()
-        return (try tree.stacking([view3], onto: view1), view1, view2, view3)
+        return StackedSplit(tree: try tree.stacking([view3], onto: view1), view1: view1, view2: view2, view3: view3)
+    }
+
+    private struct StackedSplit {
+        let tree: SplitTree<MockView>
+        let view1: MockView
+        let view2: MockView
+        let view3: MockView
     }
 
     private func stack(of view: MockView, in tree: SplitTree<MockView>) -> SplitTree<MockView>.Node.Stack? {
@@ -209,7 +216,11 @@ struct SplitTreeTests {
     }
 
     @Test func stackingAddsATabToThePaneAndKeepsTheSplit() throws {
-        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
 
         #expect(tree.isSplit)
         #expect(Array(tree) == [view1, view3, view2])
@@ -221,7 +232,10 @@ struct SplitTreeTests {
     }
 
     @Test func stackingPlacesNewTabsAfterTheShowingOne() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let view4 = MockView()
 
         let result = try tree.stacking([view4], onto: view1)
@@ -252,7 +266,10 @@ struct SplitTreeTests {
     }
 
     @Test func nodeForAViewInAStackIsTheWholePane() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
 
         let forView1 = try #require(tree.root?.node(view: view1))
         let forView3 = try #require(tree.root?.node(view: view3))
@@ -263,7 +280,10 @@ struct SplitTreeTests {
     }
 
     @Test func activatingChangesTheShowingTabOnly() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
 
         let result = try tree.activating(view: view1)
 
@@ -274,14 +294,20 @@ struct SplitTreeTests {
     }
 
     @Test func activatingALeafOrTheShowingTabLeavesTheTreeUnchanged() throws {
-        let (tree, _, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view2 = fixture.view2
+        let view3 = fixture.view3
 
         #expect(try tree.activating(view: view2).root == tree.root)
         #expect(try tree.activating(view: view3).root == tree.root)
     }
 
     @Test func removingAViewFromAStackKeepsTheOthers() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let view4 = MockView()
         let three = try tree.stacking([view4], onto: view1)
 
@@ -293,7 +319,10 @@ struct SplitTreeTests {
     }
 
     @Test func removingTheShowingTabShowsTheOneThatTakesItsPlace() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let view4 = MockView()
         // Tabs are view1, view3, view4 with view4 showing. Show view3 and remove it.
         let three = try tree.stacking([view4], onto: view1).activating(view: view3)
@@ -306,7 +335,10 @@ struct SplitTreeTests {
     }
 
     @Test func removingAnInactiveTabKeepsTheShowingOne() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
 
         let result = tree.removing(view: view1)
 
@@ -316,7 +348,11 @@ struct SplitTreeTests {
     }
 
     @Test func removingTheLastTabOfAStackLeavesALeaf() throws {
-        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
 
         let result = tree.removing(view: view3)
 
@@ -325,7 +361,11 @@ struct SplitTreeTests {
     }
 
     @Test func removingALoneViewRemovesItsPane() throws {
-        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
 
         let result = tree.removing(view: view2)
 
@@ -334,7 +374,11 @@ struct SplitTreeTests {
     }
 
     @Test func removingTheStackNodeRemovesEveryTab() throws {
-        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
         let node = try #require(tree.root?.node(view: view1))
 
         let result = tree.removing(node)
@@ -344,7 +388,10 @@ struct SplitTreeTests {
     }
 
     @Test func insertingAtAViewInAStackKeepsTheStackWhole() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let view4 = MockView()
 
         let result = try tree.inserting(view: view4, at: view3, direction: .down)
@@ -355,7 +402,11 @@ struct SplitTreeTests {
     }
 
     @Test func focusNextAndPreviousVisitEveryTabIncludingHiddenOnes() throws {
-        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
         let node = try #require(tree.root?.node(view: view3))
 
         // Leaves in order are view1, view3, view2 and view3 is showing.
@@ -364,7 +415,10 @@ struct SplitTreeTests {
     }
 
     @Test func spatialFocusTreatsAStackAsOnePane() throws {
-        let (tree, _, view2, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view2 = fixture.view2
+        let view3 = fixture.view3
         let node = try #require(tree.root?.node(view: view2))
 
         // Moving left from view2 lands on the stack's showing tab.
@@ -372,7 +426,8 @@ struct SplitTreeTests {
     }
 
     @Test func equalizedTreatsAStackAsOnePane() throws {
-        let (tree, _, _, _) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
 
         let result = tree.equalized()
 
@@ -384,7 +439,10 @@ struct SplitTreeTests {
     }
 
     @Test func zoomFollowsAPaneWhoseTabChanges() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let zoomed = SplitTree<MockView>(root: tree.root, zoomed: tree.root)
 
         let result = try zoomed.activating(view: view1)
@@ -399,7 +457,10 @@ struct SplitTreeTests {
     }
 
     @Test func structuralIdentityIgnoresTheShowingTabButNotMembership() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let switched = try tree.activating(view: view1)
         let view4 = MockView()
         let grown = try tree.stacking([view4], onto: view1)
@@ -411,7 +472,10 @@ struct SplitTreeTests {
     }
 
     @Test func encodingAndDecodingPreservesAStack() throws {
-        let (tree, view1, _, view3) = try makeStackedSplit()
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view3 = fixture.view3
         let data = try JSONEncoder().encode(tree)
 
         let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)

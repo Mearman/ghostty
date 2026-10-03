@@ -51,11 +51,40 @@ struct TerminalSplitDropZoneTests {
         #expect(zone == .right)
     }
 
-    // MARK: - Center Point (All Distances Equal)
+    // MARK: - Center Zone
 
-    @Test func centerSelectsLeft() {
+    @Test func centerPointIsTheCenterZone() {
         let zone = TerminalSplitDropZone.calculate(at: CGPoint(x: 50, y: 50), in: standardSize)
-        #expect(zone == .left)
+        #expect(zone == .center)
+    }
+
+    @Test func justInsideTheInsetOnEveryEdgeIsStillCenter() {
+        let inset = TerminalSplitDropZone.centerInset * 100
+        let points = [
+            CGPoint(x: inset, y: 50),
+            CGPoint(x: 100 - inset, y: 50),
+            CGPoint(x: 50, y: inset),
+            CGPoint(x: 50, y: 100 - inset),
+        ]
+        for point in points {
+            #expect(TerminalSplitDropZone.calculate(at: point, in: standardSize) == .center)
+        }
+    }
+
+    @Test func justOutsideTheInsetSplits() {
+        let outside = TerminalSplitDropZone.centerInset * 100 - 1
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: outside, y: 50), in: standardSize) == .left)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 100 - outside, y: 50), in: standardSize) == .right)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 50, y: outside), in: standardSize) == .top)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 50, y: 100 - outside), in: standardSize) == .bottom)
+    }
+
+    @Test func centerZoneScalesWithANonSquarePane() {
+        let size = CGSize(width: 400, height: 100)
+        // A quarter of the width in is the edge of the center zone, even though that is 100pt
+        // while a quarter of the height is only 25pt.
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 200, y: 50), in: size) == .center)
+        #expect(TerminalSplitDropZone.calculate(at: CGPoint(x: 90, y: 50), in: size) == .left)
     }
 
     // MARK: - Non-Square Aspect Ratio

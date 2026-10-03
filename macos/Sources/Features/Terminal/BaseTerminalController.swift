@@ -1031,18 +1031,26 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Where a moved surface goes relative to the surface it is dropped on.
+    private enum SurfacePlacement {
+        /// Beside it, in a new split on the given side.
+        case split(SplitTree<Ghostty.SurfaceView>.NewDirection)
+        /// In its pane, as another tab.
+        case tab
+    }
+
     private func splitDidDrop(
         source: Ghostty.SurfaceView,
         scope: TerminalSplitOperation.Drop.Scope,
         destination: Ghostty.SurfaceView,
         zone: TerminalSplitDropZone
     ) {
-        // Map drop zone to split direction
-        let direction: SplitTree<Ghostty.SurfaceView>.NewDirection = switch zone {
-        case .top: .up
-        case .bottom: .down
-        case .left: .left
-        case .right: .right
+        let placement: SurfacePlacement = switch zone {
+        case .top: .split(.up)
+        case .bottom: .split(.down)
+        case .left: .split(.left)
+        case .right: .split(.right)
+        case .center: .tab
         }
 
         // A whole-tab drag carries every split of the source's tab. Dropping a tab
@@ -1052,21 +1060,24 @@ class BaseTerminalController: NSWindowController,
                 Ghostty.logger.warning("source surface not found in any window during tab drop")
                 return
             }
-            sourceController.moveSurfaceTree(into: self, at: destination, direction: direction)
+            sourceController.moveSurfaceTree(into: self, at: destination, placement: placement)
             return
         }
 
         // Check if source is in our tree
         if let sourceNode = surfaceTree.root?.node(view: source) {
             // Source is in our tree - same window move
-            let treeWithoutSource = surfaceTree.removing(sourceNode)
+            let sameBlock = sourceNode == surfaceTree.root?.node(view: destination)
             let newTree: SplitTree<Ghostty.SurfaceView>
             do {
-                newTree = try treeWithoutSource.inserting(view: source, at: destination, direction: direction)
+                newTree = try treeByMoving(source, onto: destination, placement: placement, in: surfaceTree, samePane: sameBlock)
             } catch {
                 Ghostty.logger.warning("failed to insert surface during drop: \(error, privacy: .public)")
                 return
             }
+
+            // Nothing moved: a surface dropped into the middle of its own pane, or alone in it.
+            if newTree.root == surfaceTree.root { return }
 
             replaceSurfaceTree(
                 newTree,
@@ -1077,29 +1088,15 @@ class BaseTerminalController: NSWindowController,
         }
 
         // Source is not in our tree - search other windows
-        var sourceController: BaseTerminalController?
-        var sourceNode: SplitTree<Ghostty.SurfaceView>.Node?
-        for window in NSApp.windows {
-            guard let controller = window.windowController as? BaseTerminalController else { continue }
-            guard controller !== self else { continue }
-            if let node = controller.surfaceTree.root?.node(view: source) {
-                sourceController = controller
-                sourceNode = node
-                break
-            }
-        }
-
-        guard let sourceController, let sourceNode else {
+        guard let sourceController = Self.controller(owning: source), sourceController !== self else {
             Ghostty.logger.warning("source surface not found in any window during drop")
             return
         }
 
-        // Remove from source controller's tree and add it to our tree.
-        // We do this first because if there is an error then we can
-        // abort.
+        // Add it to our tree first, because if there is an error then we can abort.
         let newTree: SplitTree<Ghostty.SurfaceView>
         do {
-            newTree = try surfaceTree.inserting(view: source, at: destination, direction: direction)
+            newTree = try treeByMoving(source, onto: destination, placement: placement, in: surfaceTree, samePane: false)
         } catch {
             Ghostty.logger.warning("failed to insert surface during cross-window drop: \(error, privacy: .public)")
             return
@@ -1112,14 +1109,64 @@ class BaseTerminalController: NSWindowController,
             undoManager?.endUndoGrouping()
         }
 
-        // Remove the node from the source.
-        sourceController.removeSurfaceNode(sourceNode)
+        // Remove just that surface from the source (its pane's other tabs stay).
+        sourceController.removeSurfaceView(source)
 
         // Add in the surface to our tree
         replaceSurfaceTree(
             newTree,
             moveFocusTo: source,
             moveFocusFrom: focusedSurface)
+    }
+
+    /// The tree after `source` is placed at `destination`. For a surface already in `tree` it is taken
+    /// out first; for one from another window `tree` simply gains it.
+    ///
+    /// - Parameter samePane: Whether `source` and `destination` share a pane. Dropping onto the
+    ///   middle of your own pane then changes nothing, and dropping a tab on an edge of its own
+    ///   stack splits it out of that stack.
+    private func treeByMoving(
+        _ source: Ghostty.SurfaceView,
+        onto destination: Ghostty.SurfaceView,
+        placement: SurfacePlacement,
+        in tree: SplitTree<Ghostty.SurfaceView>,
+        samePane: Bool
+    ) throws -> SplitTree<Ghostty.SurfaceView> {
+        var base = tree
+        var anchor = destination
+        if tree.contains(source) {
+            if samePane {
+                switch placement {
+                case .tab:
+                    return tree
+                case .split:
+                    // Splitting a tab out of its own stack needs another tab to split beside.
+                    guard case .stack(let stack) = tree.root?.node(view: source),
+                          let other = stack.views.first(where: { $0 !== source }) else {
+                        return tree
+                    }
+                    anchor = other
+                }
+            }
+            base = tree.removing(view: source)
+        }
+
+        switch placement {
+        case .split(let direction):
+            return try base.inserting(view: source, at: anchor, direction: direction)
+        case .tab:
+            return try base.stacking([source], onto: anchor)
+        }
+    }
+
+    /// Remove one surface from this window, leaving the other tabs of its pane in place.
+    private func removeSurfaceView(_ view: Ghostty.SurfaceView) {
+        guard let node = surfaceTree.root?.node(view: view) else { return }
+        if case .stack = node {
+            removeStackedSurface(view)
+        } else {
+            removeSurfaceNode(node)
+        }
     }
 
     /// Moves every split of this window into the previous tab of its tab group, next to that
@@ -1140,10 +1187,11 @@ class BaseTerminalController: NSWindowController,
             return false
         }
 
-        return moveSurfaceTree(into: destination, at: anchor, direction: direction)
+        return moveSurfaceTree(into: destination, at: anchor, placement: .split(direction))
     }
 
-    /// Moves every split of this window into `destination`, next to `anchor`, and closes this tab.
+    /// Moves every surface of this window into `destination`, beside `anchor` as splits or in its pane as
+    /// tabs, and closes this tab.
     ///
     /// The surfaces keep running: only the tree that owns them changes. Neither side registers
     /// an undo, because undoing the destination alone would drop surfaces that are still live.
@@ -1154,19 +1202,27 @@ class BaseTerminalController: NSWindowController,
     private func moveSurfaceTree(
         into destination: BaseTerminalController,
         at anchor: Ghostty.SurfaceView,
-        direction: SplitTree<Ghostty.SurfaceView>.NewDirection
+        placement: SurfacePlacement
     ) -> Bool {
         guard destination !== self, let moving = surfaceTree.root else { return false }
 
+        let focusTarget = focusedSurface ?? moving.leftmostLeaf()
+
         let newTree: SplitTree<Ghostty.SurfaceView>
         do {
-            newTree = try destination.surfaceTree.inserting(node: moving, at: anchor, direction: direction)
+            switch placement {
+            case .split(let direction):
+                newTree = try destination.surfaceTree.inserting(node: moving, at: anchor, direction: direction)
+            case .tab:
+                // Every surface of this window becomes a tab of the destination pane, in order,
+                // with the one that had focus showing.
+                newTree = try destination.surfaceTree.stacking(
+                    moving.leaves(), onto: anchor, activating: focusTarget)
+            }
         } catch {
-            Ghostty.logger.warning("failed to insert tab into split: \(error, privacy: .public)")
+            Ghostty.logger.warning("failed to move tab: \(error, privacy: .public)")
             return false
         }
-
-        let focusTarget = focusedSurface ?? moving.leftmostLeaf()
 
         // Release the surfaces from this controller first, which closes this tab, then hand
         // them to the destination. This is the same order used by a cross-window split drop.

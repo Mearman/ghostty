@@ -177,6 +177,9 @@ private struct TerminalPaneTab: View {
         .background(isActive ? ghostty.config.backgroundColor : Color.clear)
         .contentShape(Rectangle())
         .onTapGesture(perform: activate)
+        // Dragging a tab drops it on any pane like a grab handle does: the edges split, the middle
+        // adds it as a tab there.
+        .draggable(surface)
         .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
@@ -273,9 +276,9 @@ private struct TerminalSplitLeaf: View {
                 switch result {
                 case .success(let sourceSurface):
                     DispatchQueue.main.async {
-                        // Don't allow dropping on self
+                        // Dropping a surface on itself is for the controller to judge: it is a
+                        // no-op unless the surface is a tab of a stack being split out.
                         guard let destinationSurface else { return }
-                        guard sourceSurface !== destinationSurface else { return }
                         action(.drop(.init(
                             payload: sourceSurface,
                             scope: scope,
@@ -299,11 +302,21 @@ enum TerminalSplitDropZone: String, Equatable {
     case left
     case right
 
+    /// The middle of the pane: dropping here adds the surface as a tab of the pane rather than
+    /// splitting it.
+    case center
+
+    /// How far in from every edge, as a fraction of the pane's width and height, the center zone
+    /// begins. A quarter leaves the centre half of each dimension for adding a tab, and the
+    /// outer quarter on each side for splitting.
+    static let centerInset: Double = 0.25
+
     /// Determines which drop zone the cursor is in based on proximity to edges.
     ///
     /// Divides the view into four triangular regions by drawing diagonals from
     /// corner to corner. The drop zone is determined by which edge the cursor
-    /// is closest to, creating natural triangular hit regions for each side.
+    /// is closest to, creating natural triangular hit regions for each side. A cursor
+    /// farther than `centerInset` from every edge is in the center zone instead.
     static func calculate(at point: CGPoint, in size: CGSize) -> TerminalSplitDropZone {
         let relX = point.x / size.width
         let relY = point.y / size.height
@@ -315,6 +328,7 @@ enum TerminalSplitDropZone: String, Equatable {
 
         let minDist = min(distToLeft, distToRight, distToTop, distToBottom)
 
+        if minDist >= centerInset { return .center }
         if minDist == distToLeft { return .left }
         if minDist == distToRight { return .right }
         if minDist == distToTop { return .top }
@@ -326,6 +340,9 @@ enum TerminalSplitDropZone: String, Equatable {
         let overlayColor = Color.accentColor.opacity(0.3)
 
         switch self {
+        case .center:
+            Rectangle()
+                .fill(overlayColor)
         case .top:
             VStack(spacing: 0) {
                 Rectangle()

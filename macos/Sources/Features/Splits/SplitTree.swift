@@ -226,13 +226,15 @@ extension SplitTree {
     }
 
     /// Add `views` as tabs to the pane that holds `anchor`, right after the tab that is showing, and
-    /// show the first of them. The pane becomes a stack if it was a single view. Splits, ratios and
-    /// zoom are kept.
-    func stacking(_ views: [ViewType], onto anchor: ViewType) throws -> Self {
+    /// show `activating` (the first of them unless given). The pane becomes a stack if it was a single
+    /// view. Splits, ratios and zoom are kept.
+    func stacking(_ views: [ViewType], onto anchor: ViewType, activating: ViewType? = nil) throws -> Self {
         guard let root else { throw SplitError.viewNotFound }
         guard let node = root.node(view: anchor), let first = views.first else {
             throw SplitError.viewNotFound
         }
+        let shown = activating ?? first
+        guard views.contains(where: { $0 === shown }) else { throw SplitError.viewNotFound }
 
         let existing: [ViewType]
         let insertAfter: Int
@@ -249,7 +251,7 @@ extension SplitTree {
 
         var combined = existing
         combined.insert(contentsOf: views, at: insertAfter + 1)
-        return try replacingPane(node, with: .pane(views: combined, active: first))
+        return try replacingPane(node, with: .pane(views: combined, active: shown))
     }
 
     /// Remove just `view`. In a stack the other tabs stay, and the pane turns back into a plain leaf
