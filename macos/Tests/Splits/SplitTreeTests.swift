@@ -194,6 +194,249 @@ struct SplitTreeTests {
         #expect(result.zoomed == nil)
     }
 
+    // MARK: - Stacks
+
+    /// Builds (view1 | view2) and stacks `view3` onto view1, so the left pane holds view1 and
+    /// view3 with view3 showing.
+    private func makeStackedSplit() throws -> (SplitTree<MockView>, MockView, MockView, MockView) {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        let view3 = MockView()
+        return (try tree.stacking([view3], onto: view1), view1, view2, view3)
+    }
+
+    private func stack(of view: MockView, in tree: SplitTree<MockView>) -> SplitTree<MockView>.Node.Stack? {
+        if case .stack(let stack) = tree.root?.node(view: view) { stack } else { nil }
+    }
+
+    @Test func stackingAddsATabToThePaneAndKeepsTheSplit() throws {
+        let (tree, view1, view2, view3) = try makeStackedSplit()
+
+        #expect(tree.isSplit)
+        #expect(Array(tree) == [view1, view3, view2])
+        let stack = try #require(stack(of: view3, in: tree))
+        #expect(stack.views == [view1, view3])
+        #expect(stack.active === view3)
+        // The other pane is untouched.
+        #expect(tree.root?.node(view: view2) == .leaf(view: view2))
+    }
+
+    @Test func stackingPlacesNewTabsAfterTheShowingOne() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let view4 = MockView()
+
+        let result = try tree.stacking([view4], onto: view1)
+
+        let stack = try #require(stack(of: view4, in: result))
+        #expect(stack.views == [view1, view3, view4])
+        #expect(stack.active === view4)
+    }
+
+    @Test func stackingSeveralTabsKeepsTheirOrderAndShowsTheFirst() throws {
+        let (tree, view1, _) = try makeHorizontalSplit()
+        let view3 = MockView()
+        let view4 = MockView()
+
+        let result = try tree.stacking([view3, view4], onto: view1)
+
+        let stack = try #require(stack(of: view1, in: result))
+        #expect(stack.views == [view1, view3, view4])
+        #expect(stack.active === view3)
+    }
+
+    @Test func stackingOntoAMissingViewThrows() throws {
+        let (tree, _, _) = try makeHorizontalSplit()
+
+        #expect(throws: (any Error).self) {
+            _ = try tree.stacking([MockView()], onto: MockView())
+        }
+    }
+
+    @Test func nodeForAViewInAStackIsTheWholePane() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+
+        let forView1 = try #require(tree.root?.node(view: view1))
+        let forView3 = try #require(tree.root?.node(view: view3))
+
+        #expect(forView1 == forView3)
+        #expect(tree.contains(forView1))
+        #expect(tree.find(id: view1.id) == forView1)
+    }
+
+    @Test func activatingChangesTheShowingTabOnly() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+
+        let result = try tree.activating(view: view1)
+
+        let stack = try #require(stack(of: view1, in: result))
+        #expect(stack.active === view1)
+        #expect(stack.views == [view1, view3])
+        #expect(Array(result) == Array(tree))
+    }
+
+    @Test func activatingALeafOrTheShowingTabLeavesTheTreeUnchanged() throws {
+        let (tree, _, view2, view3) = try makeStackedSplit()
+
+        #expect(try tree.activating(view: view2).root == tree.root)
+        #expect(try tree.activating(view: view3).root == tree.root)
+    }
+
+    @Test func removingAViewFromAStackKeepsTheOthers() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let view4 = MockView()
+        let three = try tree.stacking([view4], onto: view1)
+
+        let result = three.removing(view: view3)
+
+        let stack = try #require(stack(of: view4, in: result))
+        #expect(stack.views == [view1, view4])
+        #expect(stack.active === view4)
+    }
+
+    @Test func removingTheShowingTabShowsTheOneThatTakesItsPlace() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let view4 = MockView()
+        // Tabs are view1, view3, view4 with view4 showing. Show view3 and remove it.
+        let three = try tree.stacking([view4], onto: view1).activating(view: view3)
+
+        let result = three.removing(view: view3)
+
+        let stack = try #require(stack(of: view4, in: result))
+        #expect(stack.views == [view1, view4])
+        #expect(stack.active === view4)
+    }
+
+    @Test func removingAnInactiveTabKeepsTheShowingOne() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+
+        let result = tree.removing(view: view1)
+
+        // One tab is left, so the pane is a plain leaf again.
+        #expect(result.root?.node(view: view3) == .leaf(view: view3))
+        #expect(!result.contains(view1))
+    }
+
+    @Test func removingTheLastTabOfAStackLeavesALeaf() throws {
+        let (tree, view1, view2, view3) = try makeStackedSplit()
+
+        let result = tree.removing(view: view3)
+
+        #expect(result.root?.node(view: view1) == .leaf(view: view1))
+        #expect(Array(result) == [view1, view2])
+    }
+
+    @Test func removingALoneViewRemovesItsPane() throws {
+        let (tree, view1, view2, view3) = try makeStackedSplit()
+
+        let result = tree.removing(view: view2)
+
+        #expect(Array(result) == [view1, view3])
+        #expect(!result.isSplit)
+    }
+
+    @Test func removingTheStackNodeRemovesEveryTab() throws {
+        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let node = try #require(tree.root?.node(view: view1))
+
+        let result = tree.removing(node)
+
+        #expect(Array(result) == [view2])
+        #expect(!result.contains(view1) && !result.contains(view3))
+    }
+
+    @Test func insertingAtAViewInAStackKeepsTheStackWhole() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let view4 = MockView()
+
+        let result = try tree.inserting(view: view4, at: view3, direction: .down)
+
+        let stack = try #require(stack(of: view1, in: result))
+        #expect(stack.views == [view1, view3])
+        #expect(result.contains(view4))
+    }
+
+    @Test func focusNextAndPreviousVisitEveryTabIncludingHiddenOnes() throws {
+        let (tree, view1, view2, view3) = try makeStackedSplit()
+        let node = try #require(tree.root?.node(view: view3))
+
+        // Leaves in order are view1, view3, view2 and view3 is showing.
+        #expect(tree.focusTarget(for: .next, from: node) === view2)
+        #expect(tree.focusTarget(for: .previous, from: node) === view1)
+    }
+
+    @Test func spatialFocusTreatsAStackAsOnePane() throws {
+        let (tree, _, view2, view3) = try makeStackedSplit()
+        let node = try #require(tree.root?.node(view: view2))
+
+        // Moving left from view2 lands on the stack's showing tab.
+        #expect(tree.focusTarget(for: .spatial(.left), from: node) === view3)
+    }
+
+    @Test func equalizedTreatsAStackAsOnePane() throws {
+        let (tree, _, _, _) = try makeStackedSplit()
+
+        let result = tree.equalized()
+
+        guard case .split(let split) = result.root else {
+            Issue.record("expected a split root")
+            return
+        }
+        #expect(split.ratio == 0.5)
+    }
+
+    @Test func zoomFollowsAPaneWhoseTabChanges() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let zoomed = SplitTree<MockView>(root: tree.root, zoomed: tree.root)
+
+        let result = try zoomed.activating(view: view1)
+
+        let zoomedNode = try #require(result.zoomed)
+        guard case .split = zoomedNode else {
+            Issue.record("the zoomed node should still be the split")
+            return
+        }
+        let stack = try #require(stack(of: view3, in: .init(root: zoomedNode, zoomed: nil)))
+        #expect(stack.active === view1)
+    }
+
+    @Test func structuralIdentityIgnoresTheShowingTabButNotMembership() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let switched = try tree.activating(view: view1)
+        let view4 = MockView()
+        let grown = try tree.stacking([view4], onto: view1)
+
+        #expect(tree.structuralIdentity == switched.structuralIdentity)
+        #expect(tree.structuralIdentity != grown.structuralIdentity)
+        #expect(tree.structuralIdentity.hashValue == switched.structuralIdentity.hashValue)
+        _ = view3
+    }
+
+    @Test func encodingAndDecodingPreservesAStack() throws {
+        let (tree, view1, _, view3) = try makeStackedSplit()
+        let data = try JSONEncoder().encode(tree)
+
+        let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)
+
+        // Decoding makes new view instances, so find the pane by id.
+        guard case .stack(let stack) = decoded.find(id: view3.id) else {
+            Issue.record("expected the decoded pane to be a stack")
+            return
+        }
+        #expect(stack.views.map(\.id) == [view1.id, view3.id])
+        #expect(stack.active.id == view3.id)
+    }
+
+    @Test func aVersionOneTreeStillDecodes() throws {
+        let (tree, view1, view2) = try makeHorizontalSplit()
+        var object = try #require(
+            JSONSerialization.jsonObject(with: JSONEncoder().encode(tree)) as? [String: Any])
+        object["version"] = 1
+        let data = try JSONSerialization.data(withJSONObject: object)
+
+        let decoded = try JSONDecoder().decode(SplitTree<MockView>.self, from: data)
+
+        #expect(decoded.map(\.id) == [view1.id, view2.id])
+    }
+
     // MARK: - Focus Target
 
     @Test func focusTargetOnEmptyTreeReturnsNil() {

@@ -8,6 +8,12 @@ enum TerminalSplitOperation {
     case resize(Resize)
     case drop(Drop)
 
+    /// Show a tab of a pane that holds several.
+    case activate(Ghostty.SurfaceView)
+
+    /// Close one tab of a pane that holds several.
+    case closeTab(Ghostty.SurfaceView)
+
     struct Resize {
         let node: SplitTree<Ghostty.SurfaceView>.Node
         let ratio: Double
@@ -67,6 +73,9 @@ private struct TerminalSplitSubtreeView: View {
         case .leaf(let leafView):
             TerminalSplitLeaf(surfaceView: leafView, isSplit: !isRoot, action: action)
 
+        case .stack(let stack):
+            TerminalSplitStack(stack: stack, isSplit: !isRoot, action: action)
+
         case .split(let split):
             let splitViewDirection: SplitViewDirection = switch split.direction {
             case .horizontal: .horizontal
@@ -94,6 +103,83 @@ private struct TerminalSplitSubtreeView: View {
                 }
             )
         }
+    }
+}
+
+/// A pane that holds several tabs: a strip of tabs above the surface that is showing.
+private struct TerminalSplitStack: View {
+    let stack: SplitTree<Ghostty.SurfaceView>.Node.Stack
+    let isSplit: Bool
+    let action: (TerminalSplitOperation) -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            TerminalPaneTabStrip(stack: stack, action: action)
+            TerminalSplitLeaf(surfaceView: stack.active, isSplit: isSplit, action: action)
+        }
+    }
+}
+
+/// The tabs of a pane that holds several surfaces. Click a tab to show it, or its close button to
+/// close it.
+private struct TerminalPaneTabStrip: View {
+    @EnvironmentObject var ghostty: Ghostty.App
+
+    let stack: SplitTree<Ghostty.SurfaceView>.Node.Stack
+    let action: (TerminalSplitOperation) -> Void
+
+    var body: some View {
+        HStack(spacing: 0) {
+            ForEach(stack.views, id: \.id) { view in
+                TerminalPaneTab(
+                    surface: view,
+                    isActive: view === stack.active,
+                    activate: { action(.activate(view)) },
+                    close: { action(.closeTab(view)) })
+            }
+            Spacer(minLength: 0)
+        }
+        .frame(height: 24)
+        .background(ghostty.config.backgroundColor.opacity(0.6))
+        .background(Color.black.opacity(0.25))
+    }
+}
+
+private struct TerminalPaneTab: View {
+    @EnvironmentObject var ghostty: Ghostty.App
+    @ObservedObject var surface: Ghostty.SurfaceView
+
+    let isActive: Bool
+    let activate: () -> Void
+    let close: () -> Void
+
+    @State private var isHovering: Bool = false
+
+    var body: some View {
+        HStack(spacing: 6) {
+            Text(surface.title.isEmpty ? "Terminal" : surface.title)
+                .font(.system(size: 11))
+                .lineLimit(1)
+                .truncationMode(.middle)
+                .foregroundColor(isActive ? .primary : .secondary)
+
+            Button(action: close) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 8, weight: .semibold))
+                    .foregroundColor(.secondary)
+            }
+            .buttonStyle(.plain)
+            .opacity(isActive || isHovering ? 1 : 0)
+            .accessibilityLabel("Close tab")
+        }
+        .padding(.horizontal, 10)
+        .frame(maxWidth: 200, maxHeight: .infinity)
+        .background(isActive ? ghostty.config.backgroundColor : Color.clear)
+        .contentShape(Rectangle())
+        .onTapGesture(perform: activate)
+        .onHover { isHovering = $0 }
+        .accessibilityElement(children: .combine)
+        .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
     }
 }
 

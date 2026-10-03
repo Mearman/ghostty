@@ -10,10 +10,11 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
     /// size of the view area where the splits are shown.
     let zoomed: Node?
 
-    /// A single node in the tree is either a leaf node (a view) or a split (has a
-    /// left/right or top/bottom).
+    /// A single node in the tree is a pane (a leaf with one view, or a stack of several views
+    /// that share the pane) or a split (has a left/right or top/bottom).
     indirect enum Node: Codable {
         case leaf(view: ViewType)
+        case stack(Stack)
         case split(Split)
 
         struct Split: Equatable, Codable {
@@ -21,6 +22,26 @@ struct SplitTree<ViewType: NSView & Codable & Identifiable> {
             let ratio: Double
             let left: Node
             let right: Node
+        }
+
+        /// A pane that holds several views as tabs, with one of them showing.
+        ///
+        /// Only the active view is laid out and drawn; the others stay alive in the tree. A stack
+        /// always holds at least two views: a pane with one view is a `.leaf`, and `Node.pane`
+        /// builds the right case for any count.
+        struct Stack: Codable {
+            let views: [ViewType]
+            let activeIndex: Int
+
+            /// The view that is showing.
+            var active: ViewType { views[activeIndex] }
+
+            init(views: [ViewType], activeIndex: Int) {
+                precondition(views.count >= 2, "a stack holds at least two views")
+                precondition(views.indices.contains(activeIndex), "the active index is one of the views")
+                self.views = views
+                self.activeIndex = activeIndex
+            }
         }
     }
 
@@ -182,6 +203,80 @@ extension SplitTree {
         return .init(root: newRoot, zoomed: newZoomed)
     }
 
+    /// Replace a pane with another pane at the same place in the tree. Unlike `replacing(node:with:)`
+    /// this also follows a zoomed split that contains the pane, since the tree's shape is unchanged.
+    private func replacingPane(_ node: Node, with newNode: Node) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+        guard let path = root.path(to: node) else { throw SplitError.viewNotFound }
+        let newRoot = try root.replacingNode(at: path, with: newNode)
+        let zoomedPath = zoomed.flatMap { root.path(to: $0) }
+        return .init(root: newRoot, zoomed: zoomedPath.flatMap { newRoot.node(at: $0) })
+    }
+
+    /// Make `view` the showing tab of its pane. A view that is not in a stack, or is already
+    /// showing, leaves the tree unchanged.
+    func activating(view: ViewType) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+        guard let node = root.node(view: view) else { throw SplitError.viewNotFound }
+        guard case .stack(let stack) = node, let index = stack.views.firstIndex(where: { $0 === view }) else {
+            return self
+        }
+        if index == stack.activeIndex { return self }
+        return try replacingPane(node, with: .stack(.init(views: stack.views, activeIndex: index)))
+    }
+
+    /// Add `views` as tabs to the pane that holds `anchor`, right after the tab that is showing, and
+    /// show the first of them. The pane becomes a stack if it was a single view. Splits, ratios and
+    /// zoom are kept.
+    func stacking(_ views: [ViewType], onto anchor: ViewType) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+        guard let node = root.node(view: anchor), let first = views.first else {
+            throw SplitError.viewNotFound
+        }
+
+        let existing: [ViewType]
+        let insertAfter: Int
+        switch node {
+        case .leaf(let view):
+            existing = [view]
+            insertAfter = 0
+        case .stack(let stack):
+            existing = stack.views
+            insertAfter = stack.activeIndex
+        case .split:
+            throw SplitError.viewNotFound
+        }
+
+        var combined = existing
+        combined.insert(contentsOf: views, at: insertAfter + 1)
+        return try replacingPane(node, with: .pane(views: combined, active: first))
+    }
+
+    /// Remove just `view`. In a stack the other tabs stay, and the pane turns back into a plain leaf
+    /// when one is left; when `view` is alone in its pane the pane goes, as with `removing(_:)`.
+    func removing(view: ViewType) -> Self {
+        guard let root, let node = root.node(view: view) else { return self }
+        guard case .stack(let stack) = node,
+              let index = stack.views.firstIndex(where: { $0 === view }) else {
+            return removing(node)
+        }
+
+        var remaining = stack.views
+        remaining.remove(at: index)
+
+        // Keep the tab that was showing; if it was the one removed, the tab that slides into
+        // its place (or the last one) shows instead.
+        let active: ViewType
+        if index == stack.activeIndex {
+            active = remaining[Swift.min(index, remaining.count - 1)]
+        } else {
+            active = stack.active
+        }
+
+        // The node is in the tree, so replacing it cannot fail.
+        return (try? replacingPane(node, with: .pane(views: remaining, active: active))) ?? self
+    }
+
     /// Find the next view to focus based on the current focused node and direction
     func focusTarget(for direction: FocusDirection, from currentNode: Node) -> ViewType? {
         guard let root else { return nil }
@@ -222,12 +317,13 @@ extension SplitTree {
             // Extract the view from the best candidate node. The best candidate
             // node is the closest leaf node. If we have no leaves (impossible?)
             // just use the first node.
-            let bestNode = nodes.first(where: {
-                if case .leaf = $0.node { return true } else { return false }
-            }) ?? nodes[0]
+            let bestNode = nodes.first(where: { $0.node.isPane }) ?? nodes[0]
             switch bestNode.node {
             case .leaf(let view):
                 return view
+
+            case .stack(let stack):
+                return stack.active
 
             case .split:
                 // If the best candidate is a split node, use its the leaf/rightmost
@@ -358,7 +454,8 @@ private enum CodingKeys: String, CodingKey {
     case root
     case zoomed
 
-    static let currentVersion: Int = 1
+    /// Version 2 added stack nodes. A version 1 tree has none, so it decodes unchanged.
+    static let currentVersion: Int = 2
 }
 
 extension SplitTree: Codable {
@@ -367,7 +464,7 @@ extension SplitTree: Codable {
 
         // Check version
         let version = try container.decode(Int.self, forKey: .version)
-        guard version == CodingKeys.currentVersion else {
+        guard (1...CodingKeys.currentVersion).contains(version) else {
             throw DecodingError.dataCorrupted(
                 DecodingError.Context(
                     codingPath: decoder.codingPath,
@@ -413,6 +510,21 @@ extension SplitTree.Node {
     typealias SplitError = SplitTree.SplitError
     typealias Path = SplitTree.Path
 
+    /// Whether this node is a pane (a leaf or a stack) rather than a split.
+    var isPane: Bool {
+        if case .split = self { false } else { true }
+    }
+
+    /// A pane holding `views`, with `active` showing: a leaf for one view, a stack for several.
+    static func pane(views: [ViewType], active: ViewType) -> Node {
+        precondition(!views.isEmpty, "a pane holds at least one view")
+        guard views.count > 1 else { return .leaf(view: views[0]) }
+        guard let index = views.firstIndex(where: { $0 === active }) else {
+            preconditionFailure("the active view is one of the pane's views")
+        }
+        return .stack(.init(views: views, activeIndex: index))
+    }
+
     /// Find a node containing a view with the specified ID.
     /// - Parameter id: The ID of the view to find
     /// - Returns: The node containing the view if found, nil otherwise
@@ -420,6 +532,9 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return view.id == id ? self : nil
+
+        case .stack(let stack):
+            return stack.views.contains(where: { $0.id == id }) ? self : nil
 
         case .split(let split):
             if let found = split.left.find(id: id) {
@@ -430,11 +545,15 @@ extension SplitTree.Node {
         }
     }
 
-    /// Returns the node in the tree that contains the given view.
+    /// Returns the node in the tree that contains the given view. For a view in a stack this is
+    /// the stack, which stands for the whole pane.
     func node(view: ViewType) -> Node? {
         switch self {
         case .leaf(view):
             return self
+
+        case .stack(let stack):
+            return stack.views.contains(view) ? self : nil
 
         case .split(let split):
             if let result = split.left.node(view: view) {
@@ -460,7 +579,7 @@ extension SplitTree.Node {
             }
 
             switch current {
-            case .leaf:
+            case .leaf, .stack:
                 return false
 
             case .split(let split):
@@ -532,9 +651,9 @@ extension SplitTree.Node {
     ///   - at: The existing view at whose location the split should be created
     ///   - direction: The direction relative to the existing view where the subtree should be placed
     func inserting(node: Node, at: ViewType, direction: NewDirection) throws -> Self {
-        // Get the path to our insertion point. If it doesn't exist we do
-        // nothing.
-        guard let path = path(to: .leaf(view: at)) else {
+        // Get the path to our insertion point, which is the pane holding `at` (a stack stays
+        // whole). If it doesn't exist we do nothing.
+        guard let existingNode = self.node(view: at), let path = path(to: existingNode) else {
             throw SplitError.viewNotFound
         }
 
@@ -558,7 +677,6 @@ extension SplitTree.Node {
 
         // Create the new split node
         let newNode: Node = node
-        let existingNode: Node = .leaf(view: at)
         let newSplit: Node = .split(.init(
             direction: splitDirection,
             ratio: 0.5,
@@ -624,8 +742,8 @@ extension SplitTree.Node {
         }
 
         switch self {
-        case .leaf:
-            // A leaf that isn't the target stays as is
+        case .leaf, .stack:
+            // A pane that isn't the target stays as is
             return self
 
         case .split(let split):
@@ -660,8 +778,8 @@ extension SplitTree.Node {
     /// For split nodes, this creates a new split with the updated ratio.
     func resizing(to ratio: Double) -> Self {
         switch self {
-        case .leaf:
-            // Leaf nodes don't have a ratio to resize
+        case .leaf, .stack:
+            // Panes don't have a ratio to resize
             return self
 
         case .split(let split):
@@ -680,6 +798,8 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return view
+        case .stack(let stack):
+            return stack.active
         case .split(let split):
             return split.left.leftmostLeaf()
         }
@@ -690,6 +810,8 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return view
+        case .stack(let stack):
+            return stack.active
         case .split(let split):
             return split.right.rightmostLeaf()
         }
@@ -706,8 +828,8 @@ extension SplitTree.Node {
     /// Internal helper that equalizes and returns both the node and its weight.
     private func equalizeWithWeight() -> (node: Node, weight: Int) {
         switch self {
-        case .leaf:
-            // A leaf has weight 1 and doesn't change
+        case .leaf, .stack:
+            // A pane has weight 1 and doesn't change
             return (self, 1)
 
         case .split(let split):
@@ -740,7 +862,7 @@ extension SplitTree.Node {
     /// children with different directions count as 1.
     private func weightForDirection(_ direction: SplitTree.Direction) -> Int {
         switch self {
-        case .leaf:
+        case .leaf, .stack:
             return 1
         case .split(let split):
             if split.direction == direction {
@@ -751,11 +873,15 @@ extension SplitTree.Node {
         }
     }
 
-    /// Calculate the bounds of all views in this subtree based on split ratios
+    /// Calculate the bounds of all views in this subtree based on split ratios. A stack
+    /// contributes only its active view, since the others are not laid out.
     func calculateViewBounds(in bounds: CGRect) -> [(view: ViewType, bounds: CGRect)] {
         switch self {
         case .leaf(let view):
             return [(view, bounds)]
+
+        case .stack(let stack):
+            return [(stack.active, bounds)]
 
         case .split(let split):
             // Calculate bounds for left and right based on split direction and ratio
@@ -810,6 +936,9 @@ extension SplitTree.Node {
         switch self {
         case .leaf(let view):
             return view.bounds.size
+
+        case .stack(let stack):
+            return stack.active.bounds.size
 
         case .split(let split):
             let leftBounds = split.left.viewBounds()
@@ -913,7 +1042,7 @@ extension SplitTree.Node {
     /// - Returns: A tuple containing (width: columns, height: rows) as unsigned integers
     private func dimensions() -> (width: UInt, height: UInt) {
         switch self {
-        case .leaf:
+        case .leaf, .stack:
             return (1, 1)
 
         case .split(let split):
@@ -966,8 +1095,8 @@ extension SplitTree.Node {
     /// - Returns: An array of `Spatial.Slot` objects, each containing a node and its bounds
     private func spatialSlots(in bounds: CGRect) -> [SplitTree.Spatial.Slot] {
         switch self {
-        case .leaf:
-            // A leaf takes up our full bounds.
+        case .leaf, .stack:
+            // A pane takes up our full bounds.
             return [.init(node: self, bounds: bounds)]
 
         case .split(let split):
@@ -1136,6 +1265,9 @@ extension SplitTree.Node: Equatable {
             // Compare NSView instances by object identity
             return leftView === rightView
 
+        case let (.stack(stack1), .stack(stack2)):
+            return stack1 == stack2
+
         case let (.split(split1), .split(split2)):
             return split1 == split2
 
@@ -1145,11 +1277,21 @@ extension SplitTree.Node: Equatable {
     }
 }
 
+extension SplitTree.Node.Stack: Equatable {
+    static func == (lhs: Self, rhs: Self) -> Bool {
+        // Compare NSView instances by object identity, in order.
+        lhs.activeIndex == rhs.activeIndex &&
+            lhs.views.count == rhs.views.count &&
+            zip(lhs.views, rhs.views).allSatisfy { $0 === $1 }
+    }
+}
+
 // MARK: SplitTree Codable
 
 extension SplitTree.Node {
     enum CodingKeys: String, CodingKey {
         case view
+        case stack
         case split
     }
 
@@ -1159,6 +1301,8 @@ extension SplitTree.Node {
         if container.contains(.view) {
             let view = try container.decode(ViewType.self, forKey: .view)
             self = .leaf(view: view)
+        } else if container.contains(.stack) {
+            self = .stack(try container.decode(Stack.self, forKey: .stack))
         } else if container.contains(.split) {
             let split = try container.decode(Split.self, forKey: .split)
             self = .split(split)
@@ -1179,6 +1323,9 @@ extension SplitTree.Node {
         case .leaf(let view):
             try container.encode(view, forKey: .view)
 
+        case .stack(let stack):
+            try container.encode(stack, forKey: .stack)
+
         case .split(let split):
             try container.encode(split, forKey: .split)
         }
@@ -1188,11 +1335,28 @@ extension SplitTree.Node {
 // MARK: SplitTree Sequences
 
 extension SplitTree.Node {
-    /// Returns all leaf views in this subtree
+    /// Returns the views that are showing: every leaf, and the active view of each stack.
+    func showingViews() -> [ViewType] {
+        switch self {
+        case .leaf(let view):
+            return [view]
+
+        case .stack(let stack):
+            return [stack.active]
+
+        case .split(let split):
+            return split.left.showingViews() + split.right.showingViews()
+        }
+    }
+
+    /// Returns all views in this subtree, including the ones tucked behind a stack's active view
     func leaves() -> [ViewType] {
         switch self {
         case .leaf(let view):
             return [view]
+
+        case .stack(let stack):
+            return stack.views
 
         case .split(let split):
             return split.left.leaves() + split.right.leaves()
@@ -1333,6 +1497,12 @@ extension SplitTree.Node {
             // Views must be the same instance
             return view1 === view2
 
+        case let (.stack(stack1), .stack(stack2)):
+            // The same views in the same order. Which one is active is not structure, so switching
+            // tabs updates the pane in place instead of rebuilding it.
+            return stack1.views.count == stack2.views.count &&
+                   zip(stack1.views, stack2.views).allSatisfy { $0 === $1 }
+
         case let (.split(split1), .split(split2)):
             // Splits must have same direction and structurally equal children
             // Note: We intentionally don't compare ratios as they may change slightly
@@ -1350,6 +1520,7 @@ extension SplitTree.Node {
     private enum HashKey: UInt8 {
         case leaf = 0
         case split = 1
+        case stack = 2
     }
 
     /// Hashes the structural identity of this node.
@@ -1359,6 +1530,12 @@ extension SplitTree.Node {
         case .leaf(let view):
             hasher.combine(HashKey.leaf)
             hasher.combine(ObjectIdentifier(view))
+
+        case .stack(let stack):
+            hasher.combine(HashKey.stack)
+            for view in stack.views {
+                hasher.combine(ObjectIdentifier(view))
+            }
 
         case .split(let split):
             hasher.combine(HashKey.split)

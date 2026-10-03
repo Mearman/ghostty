@@ -319,6 +319,7 @@ class BaseTerminalController: NSWindowController,
     func focusSurface(_ view: Ghostty.SurfaceView) {
         // Check if target surface is in our tree
         guard surfaceTree.contains(view) else { return }
+        revealSurface(view)
 
         // Move focus to the target surface and activate the window/app
         DispatchQueue.main.async {
@@ -460,7 +461,62 @@ class BaseTerminalController: NSWindowController,
         withConfirmation: Bool = true
     ) {
         guard let node = surfaceTree.root?.node(view: view) else { return }
+
+        // One tab of a pane that holds several closes alone; the pane's other tabs stay.
+        if case .stack = node {
+            closeStackedSurface(view, withConfirmation: withConfirmation)
+            return
+        }
+
         closeSurface(node, withConfirmation: withConfirmation)
+    }
+
+    /// Close one tab of a stack, requesting confirmation if necessary.
+    private func closeStackedSurface(_ view: Ghostty.SurfaceView, withConfirmation: Bool) {
+        guard withConfirmation else {
+            removeStackedSurface(view)
+            return
+        }
+
+        confirmClose(
+            messageText: "Close Terminal?",
+            informativeText: "The terminal still has a running process. If you close the terminal the process will be killed."
+        ) { [weak self] in
+            self?.removeStackedSurface(view)
+        }
+    }
+
+    /// Remove one tab from its stack and, if it had focus, focus the tab that now shows in its place.
+    private func removeStackedSurface(_ view: Ghostty.SurfaceView) {
+        guard case .stack(let stack) = surfaceTree.root?.node(view: view),
+              let survivor = stack.views.first(where: { $0 !== view }) else { return }
+
+        let newTree = surfaceTree.removing(view: view)
+
+        // The pane keeps showing one of the remaining tabs; focus follows it if the closed tab had focus.
+        let nextFocus: Ghostty.SurfaceView? = if focusedSurface === view {
+            switch newTree.root?.node(view: survivor) {
+            case .leaf(let leaf): leaf
+            case .stack(let remaining): remaining.active
+            default: nil
+            }
+        } else {
+            nil
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: nextFocus ?? focusedSurface,
+            undoAction: "Close Terminal")
+    }
+
+    /// Show `view` if it is a hidden tab of a stack, so that it can take focus.
+    private func revealSurface(_ view: Ghostty.SurfaceView) {
+        do {
+            surfaceTree = try surfaceTree.activating(view: view)
+        } catch {
+            Ghostty.logger.warning("failed to show tab: \(error, privacy: .public)")
+        }
     }
 
     /// Close a surface node (which may contain splits), requesting confirmation if necessary.
@@ -657,9 +713,9 @@ class BaseTerminalController: NSWindowController,
 
     @objc private func ghosttyDidCloseSurface(_ notification: Notification) {
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
-        guard let node = surfaceTree.root?.node(view: target) else { return }
+        guard surfaceTree.contains(target) else { return }
         closeSurface(
-            node,
+            target,
             withConfirmation: (notification.userInfo?["process_alive"] as? Bool) ?? false)
     }
 
@@ -713,6 +769,9 @@ class BaseTerminalController: NSWindowController,
         guard let nextSurface = surfaceTree.focusTarget(for: direction.toSplitTreeFocusDirection(), from: targetNode) else {
             return
         }
+
+        // The next surface may be a tab hidden behind its pane's showing tab.
+        revealSurface(nextSurface)
 
         if surfaceTree.zoomed != nil {
             if derivedConfig.splitPreserveZoom.contains(.navigation) {
@@ -794,7 +853,8 @@ class BaseTerminalController: NSWindowController,
         guard let target = notification.object as? Ghostty.SurfaceView else { return }
         guard surfaceTree.contains(target) else { return }
 
-        // Bring the window to front and focus the surface.
+        // Bring the window to front and focus the surface, showing it first if it is a hidden tab.
+        revealSurface(target)
         window?.makeKeyAndOrderFront(nil)
 
         // We use a small delay to ensure this runs after any UI cleanup
@@ -952,6 +1012,13 @@ class BaseTerminalController: NSWindowController,
             splitDidResize(node: resize.node, to: resize.ratio)
         case .drop(let drop):
             splitDidDrop(source: drop.payload, scope: drop.scope, destination: drop.destination, zone: drop.zone)
+        case .activate(let view):
+            revealSurface(view)
+            DispatchQueue.main.async { [weak self] in
+                Ghostty.moveFocus(to: view, from: self?.focusedSurface)
+            }
+        case .closeTab(let view):
+            closeSurface(view, withConfirmation: view.needsConfirmQuit)
         }
     }
 
@@ -1353,8 +1420,11 @@ class BaseTerminalController: NSWindowController,
     }
 
     private func syncSurfaceTreeOcclusionState() {
-        let visible = self.window?.occlusionState.contains(.visible) ?? false
+        let windowVisible = self.window?.occlusionState.contains(.visible) ?? false
+        // A tab hidden behind its pane's showing tab is not on screen, whatever the window does.
+        let showing = surfaceTree.root?.showingViews() ?? []
         for view in surfaceTree {
+            let visible = windowVisible && showing.contains(where: { $0 === view })
             if let surface = view.surface, view.isWindowVisible != visible {
                 ghostty_surface_set_occlusion(surface, visible)
                 view.isWindowVisible = visible
