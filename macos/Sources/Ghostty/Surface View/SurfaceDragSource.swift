@@ -17,7 +17,7 @@ extension Ghostty {
     /// This view wraps an AppKit-based drag source to enable drag-and-drop reordering
     /// of terminal surfaces within split views. When the user drags this view, it initiates
     /// an `NSDraggingSession` with the surface's UUID encoded in the pasteboard, allowing
-    /// drop targets to identify which surface is being moved. Holding Option when the drag
+    /// drop targets to identify which surface is being moved. Holding Shift when the drag
     /// starts also marks it as a whole-tab drag, so every split of the tab moves together.
     ///
     /// The view also publishes the dragging state via `DraggingSurfaceKey` preference,
@@ -32,11 +32,15 @@ extension Ghostty {
         /// Binding that reflects whether the mouse is hovering over this view.
         @Binding var isHovering: Bool
 
+        /// Called when the view is clicked: the mouse goes down and up without starting a drag.
+        var onClick: (() -> Void)?
+
         var body: some View {
             SurfaceDragSourceViewRepresentable(
                 surfaceView: surfaceView,
                 isDragging: $isDragging,
-                isHovering: $isHovering)
+                isHovering: $isHovering,
+                onClick: onClick)
             .preference(key: DraggingSurfaceKey.self, value: isDragging ? surfaceView.id : nil)
         }
     }
@@ -47,10 +51,12 @@ extension Ghostty {
         let surfaceView: SurfaceView
         @Binding var isDragging: Bool
         @Binding var isHovering: Bool
+        let onClick: (() -> Void)?
 
         func makeNSView(context: Context) -> SurfaceDragSourceView {
             let view = SurfaceDragSourceView()
             view.surfaceView = surfaceView
+            view.onClick = onClick
             view.onDragStateChanged = { dragging in
                 isDragging = dragging
             }
@@ -64,6 +70,7 @@ extension Ghostty {
 
         func updateNSView(_ nsView: SurfaceDragSourceView, context: Context) {
             nsView.surfaceView = surfaceView
+            nsView.onClick = onClick
             nsView.onDragStateChanged = { dragging in
                 isDragging = dragging
             }
@@ -96,6 +103,12 @@ extension Ghostty {
         /// Used to update the hover state for visual feedback in the parent view.
         var onHoverChanged: ((Bool) -> Void)?
 
+        /// Callback invoked when the mouse is released without having started a drag.
+        var onClick: (() -> Void)?
+
+        /// Whether the mouse went down in this view and has not yet become a drag or been released.
+        private var clickPending: Bool = false
+
         /// Whether we are currently in a mouse tracking loop (between mouseDown
         /// and either mouseUp or drag initiation). Used to determine cursor state.
         private var isTracking: Bool = false
@@ -122,6 +135,14 @@ extension Ghostty {
             // window's drag handler. This fixes issue #10110 where grab handles
             // would drag the window instead of initiating pane drags.
             // Don't call super - the drag will be initiated in mouseDragged.
+            clickPending = true
+        }
+
+        override func mouseUp(with event: NSEvent) {
+            // A drag session takes over the mouse, so an up that reaches us is a plain click.
+            guard clickPending else { return }
+            clickPending = false
+            onClick?()
         }
 
         override func updateTrackingAreas() {
@@ -153,10 +174,13 @@ extension Ghostty {
 
         override func mouseDragged(with event: NSEvent) {
             guard !isTracking, let surfaceView = surfaceView else { return }
+            clickPending = false
 
             // Create our dragging item from our transferable
             guard let pasteboardItem = surfaceView.pasteboardItem() else { return }
-            if event.modifierFlags.contains(.option) {
+            // Not Option: macOS reads Option during a drag as a request to copy, which this source
+            // refuses (it only moves), so the drag would be rejected before it reached a drop.
+            if event.modifierFlags.contains(.shift) {
                 pasteboardItem.setData(Data(), forType: .ghosttyTabDrag)
             }
             let item = NSDraggingItem(pasteboardWriter: pasteboardItem)

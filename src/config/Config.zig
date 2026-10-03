@@ -2375,7 +2375,7 @@ keybind: Keybinds = .{},
 ///    Never show the drag handle. Splits then cannot be rearranged with
 ///    mouse controls.
 ///
-/// Dragging a handle moves that split. Hold Option when the drag starts to
+/// Dragging a handle moves that split. Hold Shift when the drag starts to
 /// move every split of its tab instead (macOS only).
 ///
 /// Available since: 1.4.0.

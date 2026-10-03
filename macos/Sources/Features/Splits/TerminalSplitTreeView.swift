@@ -115,7 +115,10 @@ private struct TerminalSplitStack: View {
     var body: some View {
         VStack(spacing: 0) {
             TerminalPaneTabStrip(stack: stack, action: action)
+            // A representable keeps the NSView it first made, so showing another tab needs a new
+            // identity here to swap the surface in.
             TerminalSplitLeaf(surfaceView: stack.active, isSplit: isSplit, action: action)
+                .id(stack.active.id)
         }
     }
 }
@@ -153,15 +156,25 @@ private struct TerminalPaneTab: View {
     let activate: () -> Void
     let close: () -> Void
 
+    @State private var isDragging: Bool = false
     @State private var isHovering: Bool = false
 
     var body: some View {
         HStack(spacing: 6) {
+            // The title is the tab's body: a click shows the tab and a drag moves it.
             Text(surface.title.isEmpty ? "Terminal" : surface.title)
                 .font(.system(size: 11))
                 .lineLimit(1)
                 .truncationMode(.middle)
                 .foregroundColor(isActive ? .primary : .secondary)
+                .frame(maxHeight: .infinity)
+                .overlay {
+                    Ghostty.SurfaceDragSource(
+                        surfaceView: surface,
+                        isDragging: $isDragging,
+                        isHovering: $isHovering,
+                        onClick: activate)
+                }
 
             Button(action: close) {
                 Image(systemName: "xmark")
@@ -175,12 +188,6 @@ private struct TerminalPaneTab: View {
         .padding(.horizontal, 10)
         .frame(maxWidth: 200, maxHeight: .infinity)
         .background(isActive ? ghostty.config.backgroundColor : Color.clear)
-        .contentShape(Rectangle())
-        .onTapGesture(perform: activate)
-        // Dragging a tab drops it on any pane like a grab handle does: the edges split, the middle
-        // adds it as a tab there.
-        .draggable(surface)
-        .onHover { isHovering = $0 }
         .accessibilityElement(children: .combine)
         .accessibilityAddTraits(isActive ? [.isButton, .isSelected] : .isButton)
     }
