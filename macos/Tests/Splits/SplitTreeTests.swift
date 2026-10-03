@@ -129,6 +129,71 @@ struct SplitTreeTests {
         #expect(result.contains(.leaf(view: view2)))
     }
 
+    // MARK: - Inserting Subtrees
+
+    @Test func insertingSubtreeToTheRightKeepsItsStructureAfterTheTarget() throws {
+        let (moving, view2, view3) = try Self.makeHorizontalSplit()
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        let result = try tree.inserting(node: #require(moving.root), at: view1, direction: .right)
+
+        #expect(Array(result) == [view1, view2, view3])
+        guard case .split(let outer) = result.root, case .split(let inner) = outer.right else {
+            Issue.record("expected the subtree to stay a split on the right of the target")
+            return
+        }
+        #expect(outer.direction == .horizontal)
+        #expect(inner.left == .leaf(view: view2))
+        #expect(inner.right == .leaf(view: view3))
+    }
+
+    @Test func insertingSubtreeToTheLeftPlacesItBeforeTheTarget() throws {
+        let (moving, view2, view3) = try Self.makeHorizontalSplit()
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        let result = try tree.inserting(node: #require(moving.root), at: view1, direction: .left)
+
+        #expect(Array(result) == [view2, view3, view1])
+    }
+
+    @Test func insertingSubtreeVerticallyUsesAVerticalSplit() throws {
+        let (moving, _, _) = try Self.makeHorizontalSplit()
+        let view1 = MockView()
+        let tree = SplitTree<MockView>(view: view1)
+
+        let result = try tree.inserting(node: #require(moving.root), at: view1, direction: .down)
+
+        guard case .split(let outer) = result.root else {
+            Issue.record("expected a split root")
+            return
+        }
+        #expect(outer.direction == .vertical)
+    }
+
+    @Test func insertingSubtreeAtMissingViewThrows() throws {
+        let (moving, _, _) = try Self.makeHorizontalSplit()
+        let tree = SplitTree<MockView>(view: MockView())
+
+        do {
+            _ = try tree.inserting(node: #require(moving.root), at: MockView(), direction: .right)
+            Issue.record("expected viewNotFound")
+        } catch let error as SplitTree<MockView>.SplitError {
+            #expect(error == .viewNotFound)
+        }
+    }
+
+    @Test func insertingSubtreeResetsZoom() throws {
+        let (moving, _, _) = try Self.makeHorizontalSplit()
+        let (zoomedTree, view1, _) = try Self.makeHorizontalSplit()
+        let zoomed = SplitTree<MockView>(root: zoomedTree.root, zoomed: zoomedTree.root?.node(view: view1))
+
+        let result = try zoomed.inserting(node: #require(moving.root), at: view1, direction: .right)
+
+        #expect(result.zoomed == nil)
+    }
+
     // MARK: - Focus Target
 
     @Test func focusTargetOnEmptyTreeReturnsNil() {

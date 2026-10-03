@@ -128,6 +128,15 @@ extension SplitTree {
             root: try root.inserting(view: view, at: at, direction: direction),
             zoomed: nil)
     }
+
+    /// Insert an existing subtree at the given view point by creating a split in the given direction.
+    /// This will always reset the zoomed state of the tree.
+    func inserting(node: Node, at: ViewType, direction: NewDirection) throws -> Self {
+        guard let root else { throw SplitError.viewNotFound }
+        return .init(
+            root: try root.inserting(node: node, at: at, direction: direction),
+            zoomed: nil)
+    }
     /// Find a node containing a view with the specified ID.
     /// - Parameter id: The ID of the view to find
     /// - Returns: The node containing the view if found, nil otherwise
@@ -510,6 +519,19 @@ extension SplitTree.Node {
     /// - Note: If the existing view (`at`) is not found in the tree, this method does nothing. We should
     /// maybe throw instead but at the moment we just do nothing.
     func inserting(view: ViewType, at: ViewType, direction: NewDirection) throws -> Self {
+        try inserting(node: .leaf(view: view), at: at, direction: direction)
+    }
+
+    /// Inserts an existing subtree into the split tree by creating a split at the location of an existing view.
+    ///
+    /// This is the generalisation of ``inserting(view:at:direction:)`` for a subtree that already
+    /// holds several views. The subtree keeps its own structure and takes the place the new view would.
+    ///
+    /// - Parameters:
+    ///   - node: The subtree to insert. Its views must not already be in this tree.
+    ///   - at: The existing view at whose location the split should be created
+    ///   - direction: The direction relative to the existing view where the subtree should be placed
+    func inserting(node: Node, at: ViewType, direction: NewDirection) throws -> Self {
         // Get the path to our insertion point. If it doesn't exist we do
         // nothing.
         guard let path = path(to: .leaf(view: at)) else {
@@ -535,7 +557,7 @@ extension SplitTree.Node {
         }
 
         // Create the new split node
-        let newNode: Node = .leaf(view: view)
+        let newNode: Node = node
         let existingNode: Node = .leaf(view: at)
         let newSplit: Node = .split(.init(
             direction: splitDirection,
