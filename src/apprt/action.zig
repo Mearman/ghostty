@@ -357,6 +357,10 @@ pub const Action = union(Key) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// Move the splits of the target's tab into the previous tab, next to
+    /// its focused split in the given direction.
+    move_tab_to_split: SplitDirection,
+
     /// Resize the window containing the target surface so that the
     /// surface is the given size in points. A zero dimension should be
     /// kept as is. This is requested by the running program (CSI 8 t)
@@ -435,6 +439,7 @@ pub const Action = union(Key) {
         readonly,
         copy_title_to_clipboard,
         move_tab_to_new_window,
+        move_tab_to_split,
         resize_window,
 
         test "ghostty.h Action.Key" {

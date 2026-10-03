@@ -447,6 +447,29 @@ fn actionCommands(action: Action.Key) []const Command {
             .description = i18n.N_("Move the current tab to a new window."),
         }},
 
+        .move_tab_to_split => comptime &.{
+            .{
+                .action = .{ .move_tab_to_split = .left },
+                .title = i18n.N_("Move Tab to Split Left"),
+                .description = i18n.N_("Move the current tab into the previous tab, to the left of its focused split."),
+            },
+            .{
+                .action = .{ .move_tab_to_split = .right },
+                .title = i18n.N_("Move Tab to Split Right"),
+                .description = i18n.N_("Move the current tab into the previous tab, to the right of its focused split."),
+            },
+            .{
+                .action = .{ .move_tab_to_split = .up },
+                .title = i18n.N_("Move Tab to Split Up"),
+                .description = i18n.N_("Move the current tab into the previous tab, above its focused split."),
+            },
+            .{
+                .action = .{ .move_tab_to_split = .down },
+                .title = i18n.N_("Move Tab to Split Down"),
+                .description = i18n.N_("Move the current tab into the previous tab, below its focused split."),
+            },
+        },
+
         .toggle_tab_overview => comptime &.{.{
             .action = .toggle_tab_overview,
             .title = i18n.N_("Toggle Tab Overview"),

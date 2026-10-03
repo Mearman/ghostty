@@ -590,6 +590,21 @@ pub const Action = union(enum) {
     /// Move a tab to a new window.
     move_tab_to_new_window,
 
+    /// Move every split of the current tab into the previous tab, placing
+    /// them next to that tab's focused split. The value takes the same
+    /// parameters as `new_split` and determines on which side of the
+    /// focused split the moved splits are placed.
+    ///
+    /// The previous tab is the one before the current tab in the tab bar.
+    /// If the current tab is the first tab, this does nothing. The running
+    /// programs, contents, and working directories all move with the splits,
+    /// and the current tab is closed once its splits have moved.
+    ///
+    /// This is currently only supported on macOS.
+    ///
+    /// Available since: 1.4.0
+    move_tab_to_split: SplitDirection,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -1450,6 +1465,7 @@ pub const Action = union(enum) {
             .goto_tab,
             .move_tab,
             .move_tab_to_new_window,
+            .move_tab_to_split,
             .toggle_tab_overview,
             .new_split,
             .goto_split,
@@ -3396,6 +3412,11 @@ test "parse: action with enum" {
         const binding = try parseSingle("a=new_split:right");
         try testing.expect(binding.action == .new_split);
         try testing.expectEqual(Action.SplitDirection.right, binding.action.new_split);
+    }
+    {
+        const binding = try parseSingle("a=move_tab_to_split:up");
+        try testing.expect(binding.action == .move_tab_to_split);
+        try testing.expectEqual(Action.SplitDirection.up, binding.action.move_tab_to_split);
     }
 }
 

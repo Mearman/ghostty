@@ -623,6 +623,9 @@ extension Ghostty {
             case GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW:
                 return moveTabToNewWindow(app, target: target)
 
+            case GHOSTTY_ACTION_MOVE_TAB_TO_SPLIT:
+                return moveTabToSplit(app, target: target, direction: action.action.move_tab_to_split)
+
             case GHOSTTY_ACTION_GOTO_TAB:
                 return gotoTab(app, target: target, tab: action.action.goto_tab)
 
@@ -1306,6 +1309,37 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        private static func moveTabToSplit(
+            _ app: ghostty_app_t,
+            target: ghostty_target_s,
+            direction: ghostty_action_split_direction_e) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("move tab to split does nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface else { return false }
+                guard let surfaceView = self.surfaceView(from: surface) else { return false }
+                guard let controller = BaseTerminalController.controller(owning: surfaceView) else { return false }
+
+                let splitDirection: SplitTree<Ghostty.SurfaceView>.NewDirection
+                switch direction {
+                case GHOSTTY_SPLIT_DIRECTION_RIGHT: splitDirection = .right
+                case GHOSTTY_SPLIT_DIRECTION_LEFT: splitDirection = .left
+                case GHOSTTY_SPLIT_DIRECTION_DOWN: splitDirection = .down
+                case GHOSTTY_SPLIT_DIRECTION_UP: splitDirection = .up
+                default: return false
+                }
+
+                return controller.moveTabToSplit(direction: splitDirection)
+
+            default:
+                assertionFailure()
+                return false
+            }
         }
 
         private static func gotoTab(

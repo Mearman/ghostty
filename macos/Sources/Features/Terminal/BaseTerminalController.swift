@@ -1043,6 +1043,50 @@ class BaseTerminalController: NSWindowController,
             moveFocusFrom: focusedSurface)
     }
 
+    /// Moves every split of this window into the previous tab of its tab group, next to that
+    /// tab's focused split, and closes this tab.
+    ///
+    /// The surfaces keep running: only the tree that owns them changes. Neither side registers
+    /// an undo, because undoing the destination alone would drop surfaces that are still live.
+    ///
+    /// - Parameter direction: Which side of the previous tab's focused split the moved splits go on.
+    /// - Returns: False when there is nothing to merge into (no previous tab) or the insertion fails.
+    @discardableResult
+    func moveTabToSplit(direction: SplitTree<Ghostty.SurfaceView>.NewDirection) -> Bool {
+        guard let window,
+              let tabGroup = window.tabGroup,
+              let index = tabGroup.windows.firstIndex(of: window),
+              index > 0,
+              let destination = tabGroup.windows[index - 1].windowController as? BaseTerminalController,
+              let moving = surfaceTree.root,
+              // A tab that was never focused has no focused surface to anchor on.
+              let anchor = destination.focusedSurface ?? destination.surfaceTree.first(where: { _ in true })
+        else {
+            return false
+        }
+
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try destination.surfaceTree.inserting(node: moving, at: anchor, direction: direction)
+        } catch {
+            Ghostty.logger.warning("failed to insert tab into split: \(error, privacy: .public)")
+            return false
+        }
+
+        let focusTarget = focusedSurface ?? moving.leftmostLeaf()
+
+        // Release the surfaces from this controller first, which closes this tab, then hand
+        // them to the destination. This is the same order used by a cross-window split drop.
+        surfaceTree = .init()
+        destination.surfaceTree = newTree
+
+        destination.window?.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: focusTarget, from: destination.focusedSurface)
+        }
+        return true
+    }
+
     func performAction(_ action: String, on surfaceView: Ghostty.SurfaceView) {
         guard let surface = surfaceView.surface else { return }
         let len = action.utf8CString.count
