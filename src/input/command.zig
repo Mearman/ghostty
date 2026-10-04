@@ -470,6 +470,65 @@ fn actionCommands(action: Action.Key) []const Command {
             },
         },
 
+        .goto_pane_tab => comptime &.{
+            .{
+                .action = .{ .goto_pane_tab = .previous },
+                .title = i18n.N_("Previous Tab in Pane"),
+                .description = i18n.N_("Show the previous tab of the current split pane."),
+            },
+            .{
+                .action = .{ .goto_pane_tab = .next },
+                .title = i18n.N_("Next Tab in Pane"),
+                .description = i18n.N_("Show the next tab of the current split pane."),
+            },
+        },
+
+        .stack_split => comptime &.{
+            .{
+                .action = .{ .stack_split = .left },
+                .title = i18n.N_("Stack Into Left Pane"),
+                .description = i18n.N_("Move the focused terminal into the pane to the left as a tab."),
+            },
+            .{
+                .action = .{ .stack_split = .right },
+                .title = i18n.N_("Stack Into Right Pane"),
+                .description = i18n.N_("Move the focused terminal into the pane to the right as a tab."),
+            },
+            .{
+                .action = .{ .stack_split = .up },
+                .title = i18n.N_("Stack Into Upper Pane"),
+                .description = i18n.N_("Move the focused terminal into the pane above as a tab."),
+            },
+            .{
+                .action = .{ .stack_split = .down },
+                .title = i18n.N_("Stack Into Lower Pane"),
+                .description = i18n.N_("Move the focused terminal into the pane below as a tab."),
+            },
+        },
+
+        .unstack_split => comptime &.{
+            .{
+                .action = .{ .unstack_split = .left },
+                .title = i18n.N_("Split Tab Out Left"),
+                .description = i18n.N_("Move the focused tab out of its pane into a new split on the left."),
+            },
+            .{
+                .action = .{ .unstack_split = .right },
+                .title = i18n.N_("Split Tab Out Right"),
+                .description = i18n.N_("Move the focused tab out of its pane into a new split on the right."),
+            },
+            .{
+                .action = .{ .unstack_split = .up },
+                .title = i18n.N_("Split Tab Out Up"),
+                .description = i18n.N_("Move the focused tab out of its pane into a new split above."),
+            },
+            .{
+                .action = .{ .unstack_split = .down },
+                .title = i18n.N_("Split Tab Out Down"),
+                .description = i18n.N_("Move the focused tab out of its pane into a new split below."),
+            },
+        },
+
         .toggle_tab_overview => comptime &.{.{
             .action = .toggle_tab_overview,
             .title = i18n.N_("Toggle Tab Overview"),

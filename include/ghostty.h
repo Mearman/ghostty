@@ -631,6 +631,12 @@ typedef enum {
   GHOSTTY_GOTO_WINDOW_NEXT,
 } ghostty_action_goto_window_e;
 
+// apprt.action.GotoPaneTab
+typedef enum {
+  GHOSTTY_GOTO_PANE_TAB_PREVIOUS,
+  GHOSTTY_GOTO_PANE_TAB_NEXT,
+} ghostty_action_goto_pane_tab_e;
+
 // apprt.action.ResizeSplit.Direction
 typedef enum {
   GHOSTTY_RESIZE_SPLIT_UP,
@@ -1016,6 +1022,9 @@ typedef enum {
   GHOSTTY_ACTION_COPY_TITLE_TO_CLIPBOARD,
   GHOSTTY_ACTION_MOVE_TAB_TO_NEW_WINDOW,
   GHOSTTY_ACTION_MOVE_TAB_TO_SPLIT,
+  GHOSTTY_ACTION_GOTO_PANE_TAB,
+  GHOSTTY_ACTION_STACK_SPLIT,
+  GHOSTTY_ACTION_UNSTACK_SPLIT,
   GHOSTTY_ACTION_RESIZE_WINDOW,
 } ghostty_action_tag_e;
 
@@ -1024,6 +1033,9 @@ typedef union {
   ghostty_action_fullscreen_e toggle_fullscreen;
   ghostty_action_move_tab_s move_tab;
   ghostty_action_split_direction_e move_tab_to_split;
+  ghostty_action_goto_pane_tab_e goto_pane_tab;
+  ghostty_action_goto_split_e stack_split;
+  ghostty_action_split_direction_e unstack_split;
   ghostty_action_goto_tab_e goto_tab;
   ghostty_action_goto_split_e goto_split;
   ghostty_action_goto_window_e goto_window;

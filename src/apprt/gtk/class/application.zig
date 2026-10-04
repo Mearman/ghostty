@@ -805,6 +805,9 @@ pub const Application = extern struct {
 
             // Unimplemented
             .move_tab_to_split,
+            .goto_pane_tab,
+            .stack_split,
+            .unstack_split,
             .secure_input,
             .close_all_windows,
             .float_window,

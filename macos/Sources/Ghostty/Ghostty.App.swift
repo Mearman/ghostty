@@ -626,6 +626,31 @@ extension Ghostty {
             case GHOSTTY_ACTION_MOVE_TAB_TO_SPLIT:
                 return moveTabToSplit(app, target: target, direction: action.action.move_tab_to_split)
 
+            case GHOSTTY_ACTION_GOTO_PANE_TAB:
+                return paneTabAction(target: target) { controller, surfaceView in
+                    let offset = action.action.goto_pane_tab == GHOSTTY_GOTO_PANE_TAB_NEXT ? 1 : -1
+                    return controller.gotoPaneTab(from: surfaceView, offset: offset)
+                }
+
+            case GHOSTTY_ACTION_STACK_SPLIT:
+                return paneTabAction(target: target) { controller, surfaceView in
+                    guard let direction = SplitFocusDirection.from(direction: action.action.stack_split) else { return false }
+                    return controller.stackSurface(surfaceView, toward: direction.toSplitTreeFocusDirection())
+                }
+
+            case GHOSTTY_ACTION_UNSTACK_SPLIT:
+                return paneTabAction(target: target) { controller, surfaceView in
+                    let direction: SplitTree<Ghostty.SurfaceView>.NewDirection
+                    switch action.action.unstack_split {
+                    case GHOSTTY_SPLIT_DIRECTION_RIGHT: direction = .right
+                    case GHOSTTY_SPLIT_DIRECTION_LEFT: direction = .left
+                    case GHOSTTY_SPLIT_DIRECTION_DOWN: direction = .down
+                    case GHOSTTY_SPLIT_DIRECTION_UP: direction = .up
+                    default: return false
+                    }
+                    return controller.unstackSurface(surfaceView, direction: direction)
+                }
+
             case GHOSTTY_ACTION_GOTO_TAB:
                 return gotoTab(app, target: target, tab: action.action.goto_tab)
 
@@ -1309,6 +1334,29 @@ extension Ghostty {
                 }
 
                 return true
+        }
+
+        /// Runs a pane-tab operation on the controller that owns the target surface. Returns whether
+        /// it did anything, so a keybind that cannot apply (no stack, no neighbour) is not consumed.
+        private static func paneTabAction(
+            target: ghostty_target_s,
+            _ operation: (BaseTerminalController, Ghostty.SurfaceView) -> Bool
+        ) -> Bool {
+            switch target.tag {
+            case GHOSTTY_TARGET_APP:
+                Ghostty.logger.warning("pane tab actions do nothing with an app target")
+                return false
+
+            case GHOSTTY_TARGET_SURFACE:
+                guard let surface = target.target.surface,
+                      let surfaceView = self.surfaceView(from: surface),
+                      let controller = BaseTerminalController.controller(owning: surfaceView) else { return false }
+                return operation(controller, surfaceView)
+
+            default:
+                assertionFailure()
+                return false
+            }
         }
 
         private static func moveTabToSplit(

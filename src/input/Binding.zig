@@ -605,6 +605,34 @@ pub const Action = union(enum) {
     /// Available since: 1.4.0
     move_tab_to_split: SplitDirection,
 
+    /// Show the previous or next tab of the current split pane (`previous`, `next`), wrapping
+    /// around at either end. A pane holds several tabs after a surface is dropped on its middle,
+    /// or moved in with `stack_split`. In a pane with a single terminal this does nothing.
+    ///
+    /// This is currently only supported on macOS.
+    ///
+    /// Available since: 1.4.0
+    goto_pane_tab: GotoPaneTab,
+
+    /// Move the focused terminal into the neighbouring split pane in the given direction as another
+    /// tab of that pane, instead of leaving it as a split of its own. The values are the same as
+    /// `goto_split`. If the focused terminal is alone in its pane, its pane goes away; if there is
+    /// no neighbouring pane in that direction, this does nothing.
+    ///
+    /// This is currently only supported on macOS.
+    ///
+    /// Available since: 1.4.0
+    stack_split: SplitFocusDirection,
+
+    /// Move the focused tab out of its pane into a new split on the given side of that pane. The
+    /// values are the same as `new_split`. If the pane holds only the focused terminal, this does
+    /// nothing.
+    ///
+    /// This is currently only supported on macOS.
+    ///
+    /// Available since: 1.4.0
+    unstack_split: SplitDirection,
+
     /// Toggle the tab overview.
     ///
     /// This is only supported on Linux and when the system's libadwaita
@@ -1127,6 +1155,11 @@ pub const Action = union(enum) {
         next,
     };
 
+    pub const GotoPaneTab = enum {
+        previous,
+        next,
+    };
+
     pub const SplitResizeParameter = struct {
         SplitResizeDirection,
         u16,
@@ -1466,6 +1499,9 @@ pub const Action = union(enum) {
             .move_tab,
             .move_tab_to_new_window,
             .move_tab_to_split,
+            .goto_pane_tab,
+            .stack_split,
+            .unstack_split,
             .toggle_tab_overview,
             .new_split,
             .goto_split,
@@ -3417,6 +3453,21 @@ test "parse: action with enum" {
         const binding = try parseSingle("a=move_tab_to_split:up");
         try testing.expect(binding.action == .move_tab_to_split);
         try testing.expectEqual(Action.SplitDirection.up, binding.action.move_tab_to_split);
+    }
+    {
+        const binding = try parseSingle("a=unstack_split:left");
+        try testing.expect(binding.action == .unstack_split);
+        try testing.expectEqual(Action.SplitDirection.left, binding.action.unstack_split);
+    }
+    {
+        const binding = try parseSingle("a=stack_split:next");
+        try testing.expect(binding.action == .stack_split);
+        try testing.expectEqual(Action.SplitFocusDirection.next, binding.action.stack_split);
+    }
+    {
+        const binding = try parseSingle("a=goto_pane_tab:previous");
+        try testing.expect(binding.action == .goto_pane_tab);
+        try testing.expectEqual(Action.GotoPaneTab.previous, binding.action.goto_pane_tab);
     }
 }
 

@@ -387,6 +387,22 @@ struct SplitTreeTests {
         #expect(!result.contains(view1) && !result.contains(view3))
     }
 
+    @Test func movingAViewIntoAnotherPanesStackLeavesItsOldPaneBehind() throws {
+        let fixture = try makeStackedSplit()
+        let tree = fixture.tree
+        let view1 = fixture.view1
+        let view2 = fixture.view2
+        let view3 = fixture.view3
+
+        // view2 is alone in the right pane; stacking it onto the left pane's tabs removes its own pane.
+        let result = try tree.removing(view: view2).stacking([view2], onto: view1)
+
+        #expect(!result.isSplit)
+        let stack = try #require(stack(of: view2, in: result))
+        #expect(stack.views == [view1, view3, view2])
+        #expect(stack.active === view2)
+    }
+
     @Test func insertingAtAViewInAStackKeepsTheStackWhole() throws {
         let fixture = try makeStackedSplit()
         let tree = fixture.tree

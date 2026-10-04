@@ -361,6 +361,15 @@ pub const Action = union(Key) {
     /// its focused split in the given direction.
     move_tab_to_split: SplitDirection,
 
+    /// Show the previous or next tab of the target's split pane.
+    goto_pane_tab: GotoPaneTab,
+
+    /// Move the target into the neighbouring split pane in the given direction, as a tab of it.
+    stack_split: GotoSplit,
+
+    /// Move the target tab out of its pane into a new split on the given side.
+    unstack_split: SplitDirection,
+
     /// Resize the window containing the target surface so that the
     /// surface is the given size in points. A zero dimension should be
     /// kept as is. This is requested by the running program (CSI 8 t)
@@ -440,6 +449,9 @@ pub const Action = union(Key) {
         copy_title_to_clipboard,
         move_tab_to_new_window,
         move_tab_to_split,
+        goto_pane_tab,
+        stack_split,
+        unstack_split,
         resize_window,
 
         test "ghostty.h Action.Key" {
@@ -552,6 +564,15 @@ pub const GotoWindow = enum(c_int) {
 
     test "ghostty.h GotoWindow" {
         try lib.checkGhosttyHEnum(GotoWindow, "GHOSTTY_GOTO_WINDOW_");
+    }
+};
+
+pub const GotoPaneTab = enum(c_int) {
+    previous,
+    next,
+
+    test "ghostty.h GotoPaneTab" {
+        try lib.checkGhosttyHEnum(GotoPaneTab, "GHOSTTY_GOTO_PANE_TAB_");
     }
 };
 

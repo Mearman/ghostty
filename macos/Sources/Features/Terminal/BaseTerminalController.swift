@@ -1159,6 +1159,90 @@ class BaseTerminalController: NSWindowController,
         }
     }
 
+    /// Shows the tab `offset` places from the showing one in the pane that holds `view`, wrapping at either end,
+    /// and focuses it.
+    ///
+    /// - Returns: False when the pane holds a single terminal.
+    @discardableResult
+    func gotoPaneTab(from view: Ghostty.SurfaceView, offset: Int) -> Bool {
+        guard case .stack(let stack) = surfaceTree.root?.node(view: view) else { return false }
+        let count = stack.views.count
+        let target = stack.views[((stack.activeIndex + offset) % count + count) % count]
+        revealSurface(target)
+        DispatchQueue.main.async {
+            Ghostty.moveFocus(to: target, from: view)
+        }
+        return true
+    }
+
+    /// Moves `view` out of its own pane and into the neighbouring pane in `direction`, as another tab there.
+    ///
+    /// Previous and next skip the other tabs of the view's own pane. The pane `view` leaves goes away if it was
+    /// alone in it.
+    ///
+    /// - Returns: False when there is no neighbouring pane in that direction.
+    @discardableResult
+    func stackSurface(_ view: Ghostty.SurfaceView, toward direction: SplitTree<Ghostty.SurfaceView>.FocusDirection) -> Bool {
+        guard let root = surfaceTree.root, let node = root.node(view: view) else { return false }
+
+        let neighbour: Ghostty.SurfaceView?
+        switch direction {
+        case .previous, .next:
+            let all = root.leaves()
+            let own = node.leaves()
+            if let first = all.firstIndex(where: { $0 === own[0] }), own.count < all.count {
+                let index: Int
+                if case .next = direction { index = first + own.count } else { index = first - 1 }
+                neighbour = all[(index % all.count + all.count) % all.count]
+            } else {
+                neighbour = nil
+            }
+
+        case .spatial:
+            neighbour = surfaceTree.focusTarget(for: direction, from: node)
+        }
+
+        guard let neighbour, root.node(view: neighbour) != node else { return false }
+
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try surfaceTree.removing(view: view).stacking([view], onto: neighbour)
+        } catch {
+            Ghostty.logger.warning("failed to stack surface: \(error, privacy: .public)")
+            return false
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: view,
+            moveFocusFrom: focusedSurface,
+            undoAction: "Stack Split")
+        return true
+    }
+
+    /// Moves `view` out of the stack it is a tab of, into a new split on the given side of that pane.
+    ///
+    /// - Returns: False when `view` is not a tab of a stack.
+    @discardableResult
+    func unstackSurface(_ view: Ghostty.SurfaceView, direction: SplitTree<Ghostty.SurfaceView>.NewDirection) -> Bool {
+        guard case .stack = surfaceTree.root?.node(view: view) else { return false }
+
+        let newTree: SplitTree<Ghostty.SurfaceView>
+        do {
+            newTree = try treeByMoving(view, onto: view, placement: .split(direction), in: surfaceTree, samePane: true)
+        } catch {
+            Ghostty.logger.warning("failed to unstack surface: \(error, privacy: .public)")
+            return false
+        }
+
+        replaceSurfaceTree(
+            newTree,
+            moveFocusTo: view,
+            moveFocusFrom: focusedSurface,
+            undoAction: "Unstack Split")
+        return true
+    }
+
     /// Remove one surface from this window, leaving the other tabs of its pane in place.
     private func removeSurfaceView(_ view: Ghostty.SurfaceView) {
         guard let node = surfaceTree.root?.node(view: view) else { return }
